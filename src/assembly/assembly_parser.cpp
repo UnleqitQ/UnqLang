@@ -7,7 +7,8 @@ namespace assembly {
 		const Parser<char, assembly_token> instruction_parser =
 			tokens<char>({
 				"nop"_t, "mov"_t, "push"_t, "pop"_t, "lea"_t,
-				"add"_t, "sub"_t, "mul"_t, "imul"_t, "div"_t, "idiv"_t, "mod"_t, "imod"_t, "inc"_t, "dec"_t, "neg"_t, "adc"_t, "sbb"_t,
+				"add"_t, "sub"_t, "mul"_t, "imul"_t, "div"_t, "idiv"_t, "mod"_t, "imod"_t, "inc"_t, "dec"_t, "neg"_t, "adc"_t,
+				"sbb"_t,
 				"cmp"_t,
 				"and"_t, "or"_t, "xor"_t, "not"_t, "shl"_t, "shr"_t, "sar"_t, "rol"_t, "ror"_t, "rcl"_t, "rcr"_t,
 				"test"_t,
@@ -628,86 +629,6 @@ namespace assembly {
 				return parse_args_2n(ds, parts.first.second, parts.second);
 			}, "to_args");
 
-		assembly_instruction::args_t<2, true> parse_args_2r(std::optional<machine::data_size_t> ds,
-			assembly_result result, assembly_operand op1, assembly_operand op2) {
-			if (result.result_type == assembly_result::type::MEMORY) {
-				if (ds.has_value()) {
-					result = assembly_result{std::get<assembly_memory>(result.value).with_size(ds.value())};
-				}
-				else {
-					// Infer size from operands if one of them is a register
-					if ((op1.operand_type == assembly_operand::type::MEMORY ||
-							op1.operand_type == assembly_operand::type::LITERAL) &&
-						(op2.operand_type == assembly_operand::type::MEMORY ||
-							op2.operand_type == assembly_operand::type::LITERAL)) {
-						throw std::invalid_argument(
-							"Memory data size not specified and cannot be inferred");
-					}
-					machine::data_size_t inferred_size;
-					if (op1.operand_type == assembly_operand::type::REGISTER) {
-						if (op2.operand_type == assembly_operand::type::REGISTER) {
-							inferred_size = max_data_size(
-								infer_size_from_register(std::get<machine::register_t>(op1.value)),
-								infer_size_from_register(std::get<machine::register_t>(op2.value))
-							);
-						}
-						else {
-							inferred_size = infer_size_from_register(std::get<machine::register_t>(op1.value));
-						}
-					}
-					else {
-						inferred_size = infer_size_from_register(std::get<machine::register_t>(op2.value));
-					}
-					result = assembly_result{std::get<assembly_memory>(result.value).with_size(inferred_size)};
-				}
-			}
-			if (op1.operand_type == assembly_operand::type::MEMORY) {
-				if (ds.has_value()) {
-					op1 = assembly_operand{std::get<assembly_memory>(op1.value).with_size(ds.value())};
-				}
-				else {
-					if (result.result_type == assembly_result::type::REGISTER) {
-						machine::data_size_t inferred_size = infer_size_from_register(std::get<machine::register_t>(result.value));
-						op1 = assembly_operand{std::get<assembly_memory>(op1.value).with_size(inferred_size)};
-					}
-					else {
-						machine::data_size_t inferred_size = infer_size_from_register(std::get<machine::register_t>(op2.value));
-						op1 = assembly_operand{std::get<assembly_memory>(op1.value).with_size(inferred_size)};
-					}
-				}
-			}
-			if (op2.operand_type == assembly_operand::type::MEMORY) {
-				if (ds.has_value()) {
-					op2 = assembly_operand{std::get<assembly_memory>(op2.value).with_size(ds.value())};
-				}
-				else {
-					if (result.result_type == assembly_result::type::REGISTER) {
-						machine::data_size_t inferred_size = infer_size_from_register(std::get<machine::register_t>(result.value));
-						op2 = assembly_operand{std::get<assembly_memory>(op2.value).with_size(inferred_size)};
-					}
-					else {
-						machine::data_size_t inferred_size = infer_size_from_register(std::get<machine::register_t>(op1.value));
-						op2 = assembly_operand{std::get<assembly_memory>(op2.value).with_size(inferred_size)};
-					}
-				}
-			}
-			return assembly_instruction::args_t<2, true>{{op1, op2}, result};
-		}
-		const Parser<assembly_parse_component, assembly_instruction::args_t<2, true>> args_2r_parser =
-		((~is_component_type(assembly_parse_component::type::DATA_SIZE)) + result_parser + (is_component_type(
-				assembly_parse_component::type::COMMA)
-			> operand_parser) + (is_component_type(assembly_parse_component::type::COMMA)
-			> operand_parser)).map<assembly_instruction::args_t<2, true>>(
-			[](const std::pair<std::pair<std::pair<std::optional<assembly_parse_component>, assembly_result>,
-			assembly_operand>, assembly_operand>& parts) {
-				auto dsc = parts.first.first.first;
-				std::optional<machine::data_size_t> ds = std::nullopt;
-				if (dsc.has_value()) {
-					ds = std::get<machine::data_size_t>(dsc->value);
-				}
-				return parse_args_2r(ds, parts.first.first.second, parts.first.second, parts.second);
-			}, "to_args");
-
 		const std::vector<machine::operation> operations_0n = {
 			machine::operation::NOP,
 			machine::operation::RET,
@@ -723,7 +644,9 @@ namespace assembly {
 			machine::operation::POP,
 			machine::operation::INC,
 			machine::operation::DEC,
-			machine::operation::IN
+			machine::operation::IN,
+			machine::operation::NEG,
+			machine::operation::NOT
 		};
 		const std::vector<machine::operation> operations_1n = {
 			machine::operation::JMP,
@@ -752,14 +675,6 @@ namespace assembly {
 		const std::vector<machine::operation> operations_1r = {
 			machine::operation::MOV,
 			machine::operation::LEA,
-			machine::operation::NEG,
-			machine::operation::NOT,
-		};
-		const std::vector<machine::operation> operations_2n = {
-			machine::operation::CMP,
-			machine::operation::TEST,
-		};
-		const std::vector<machine::operation> operations_2r = {
 			machine::operation::ADD,
 			machine::operation::SUB,
 			machine::operation::MUL,
@@ -780,6 +695,10 @@ namespace assembly {
 			machine::operation::ROR,
 			machine::operation::RCL,
 			machine::operation::RCR,
+		};
+		const std::vector<machine::operation> operations_2n = {
+			machine::operation::CMP,
+			machine::operation::TEST,
 		};
 		Parser<assembly_parse_component, assembly_parse_component> is_instruction_of_type(
 			const std::vector<machine::operation>& ops) {
@@ -821,10 +740,6 @@ namespace assembly {
 				}, "to_instruction")
 			|| (is_instruction_of_type(operations_2n) + args_2n_parser).map<assembly_instruction>(
 				[](const std::pair<assembly_parse_component, assembly_instruction::args_t<2, false>>& parts) {
-					return assembly_instruction{std::get<machine::operation>(parts.first.value), parts.second};
-				}, "to_instruction")
-			|| (is_instruction_of_type(operations_2r) + args_2r_parser).map<assembly_instruction>(
-				[](const std::pair<assembly_parse_component, assembly_instruction::args_t<2, true>>& parts) {
 					return assembly_instruction{std::get<machine::operation>(parts.first.value), parts.second};
 				}, "to_instruction"));
 		Parser<assembly_parse_component, std::string> label_parser =
