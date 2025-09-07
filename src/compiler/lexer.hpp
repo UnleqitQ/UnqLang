@@ -10,8 +10,8 @@ namespace compiler {
 		enum class type_t {
 			Identifier,
 			Integer,
-			// Float,
-			// String,
+			Float,
+			String,
 			Operator,
 			Punctuation,
 			Keyword,

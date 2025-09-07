@@ -125,7 +125,8 @@ namespace assembly {
 
 	std::vector<assembly_token> run_lexer(const std::string& input) {
 		std::vector<char> chars(input.begin(), input.end());
-		auto result = lexer::assembly_tokenization_parser.parse(chars);
+		ParserTable empty_table;
+		auto result = lexer::assembly_tokenization_parser.parse(chars, empty_table);
 		if (!result.empty()) {
 			if (result.size() > 1) {
 				std::cerr << "Warning: Multiple parse results, using the first one." << std::endl;
@@ -158,7 +159,7 @@ namespace assembly {
 	namespace component_parser {
 		Parser<assembly_token, assembly_token> is_token_type(assembly_token::type type) {
 			auto type_parse_func = [type](const std::vector<assembly_token>& input,
-				std::vector<std::pair<assembly_token, size_t>>& output) {
+				std::vector<std::pair<assembly_token, size_t>>& output, ParserTable&) {
 				if (!input.empty() && input[0].token_type == type) {
 					output.emplace_back(input[0], 1);
 				}
@@ -392,7 +393,8 @@ namespace assembly {
 	} // namespace component_parser
 
 	std::vector<assembly_parse_component> run_component_parser(const std::vector<assembly_token>& tokens) {
-		auto result = component_parser::component_list_parser.parse(tokens);
+		ParserTable empty_table;
+		auto result = component_parser::component_list_parser.parse(tokens, empty_table);
 		if (!result.empty()) {
 			if (result.size() > 1) {
 				std::cerr << "Warning: Multiple parse results, using the first one." << std::endl;
@@ -405,7 +407,7 @@ namespace assembly {
 	namespace parser {
 		Parser<assembly_parse_component, assembly_parse_component> is_component_type(assembly_parse_component::type type) {
 			auto type_parse_func = [type](const std::vector<assembly_parse_component>& input,
-				std::vector<std::pair<assembly_parse_component, size_t>>& output) {
+				std::vector<std::pair<assembly_parse_component, size_t>>& output, ParserTable&) {
 				if (!input.empty() && input[0].component_type == type) {
 					output.emplace_back(input[0], 1);
 				}
@@ -702,7 +704,7 @@ namespace assembly {
 		Parser<assembly_parse_component, assembly_parse_component> is_instruction_of_type(
 			const std::vector<machine::operation>& ops) {
 			auto instr_parse_func = [ops](const std::vector<assembly_parse_component>& input,
-				std::vector<std::pair<assembly_parse_component, size_t>>& output) {
+				std::vector<std::pair<assembly_parse_component, size_t>>& output, ParserTable&) {
 				if (!input.empty() && input[0].component_type == assembly_parse_component::type::INSTRUCTION) {
 					machine::operation op = std::get<machine::operation>(input[0].value);
 					if (std::find(ops.begin(), ops.end(), op) != ops.end()) {
@@ -769,7 +771,8 @@ namespace assembly {
 	}
 
 	assembly_program_t run_parser(const std::vector<assembly_parse_component>& components) {
-		auto result = parser::instructions_parser.parse(components);
+		ParserTable empty_table;
+		auto result = parser::instructions_parser.parse(components, empty_table);
 		if (!result.empty()) {
 			if (result.size() > 1) {
 				std::cerr << "Warning: Multiple parse results, using the first one." << std::endl;

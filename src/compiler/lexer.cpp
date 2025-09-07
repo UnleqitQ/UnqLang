@@ -10,7 +10,7 @@ namespace compiler {
 			return lexer_token{lexer_token::type_t::Comment, comment_str};
 		}, "single-line-comment");
 	const Parser<char, lexer_token> ml_comment_lexer = (token("/*") > Parser<char, std::vector<char>>(
-			[](const std::vector<char>& input, std::vector<std::pair<std::vector<char>, size_t>>& output) {
+			[](const std::vector<char>& input, std::vector<std::pair<std::vector<char>, size_t>>& output, ParserTable&) {
 				size_t pos = 0;
 				while (pos < input.size()) {
 					if (pos + 1 < input.size() && input[pos] == '*' && input[pos + 1] == '/') {
@@ -70,6 +70,21 @@ namespace compiler {
 			id_str.append(p.second.begin(), p.second.end());
 			return lexer_token{lexer_token::type_t::Identifier, id_str};
 		}, "identifier");
+	auto t = (symbol('"') >
+			*(
+				(symbol('\\') + satisfy<char>([](char c) { return true; }, "any")).map<char>(
+					[](const std::pair<char, char>& p) {
+						switch (p.second) {
+							case 'n': return '\n';
+							case 'r': return '\r';
+							case 't': return '\t';
+							case '\\': return '\\';
+							case '"': return '"';
+							default: return p.second; // Unknown escape, just return the char itself
+						}
+					}, "escape") ||
+				satisfy<char>([](char c) { return c != '"'; }, "non-quote")
+			) < symbol('"'));
 	const Parser<char, lexer_token> string_lexer = (symbol('"') >
 			*(
 				(symbol('\\') + satisfy<char>([](char c) { return true; }, "any")).map<char>(
@@ -129,7 +144,8 @@ namespace compiler {
 	std::vector<lexer_token> run_lexer(const std::string& source) {
 		std::vector<char> input(source.begin(), source.end());
 		std::vector<std::pair<std::vector<lexer_token>, size_t>> output;
-		lexer_parser.parse(input, output);
+		ParserTable table;
+		lexer_parser.parse(input, output, table);
 		if (output.empty()) {
 			return {};
 		}
@@ -151,7 +167,7 @@ namespace compiler {
 				os << "Integer, Value: " << std::get<int>(tok.value);
 				break;
 			case lexer_token::type_t::Float:
-				os << "Float, Value: " << std::get<double>(tok.value);
+				//os << "Float, Value: " << std::get<double>(tok.value);
 				break;
 			case lexer_token::type_t::String:
 				os << "String, Value: \"" << std::get<std::string>(tok.value) << "\"";

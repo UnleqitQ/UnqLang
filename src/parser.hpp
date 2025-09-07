@@ -1,4 +1,5 @@
 #pragma once
+#include <complex.h>
 #include <functional>
 #include <optional>
 #include <vector>
@@ -7,13 +8,18 @@
 #include <format>
 #include <type_traits>
 
+#include "parser.hpp"
+#include "compiler/ast.hpp"
+
 #define PRINT_CONTENT(input) for (const auto& c : input) { if constexpr (std::is_same_v<T, char>) { if (c == '\n') {std::cout << "[\\n]";}else if (c == '\r') {std::cout << "[\\r]";}else if (c == '\t') {std::cout << "[\\t]";}else {std::cout << c;}}else {std::cout << "[" << c << "]";}}std::cout << std::endl;std::cout << std::endl;
+
+typedef std::unordered_map<std::string, std::shared_ptr<void>> ParserTable;
 
 template<typename T, typename U>
 class Parser {
 public:
 	static constexpr bool DO_DEBUG = false;
-	using ParseFunction = std::function<void(const std::vector<T>&, std::vector<std::pair<U, size_t>>&)>;
+	using ParseFunction = std::function<void(const std::vector<T>&, std::vector<std::pair<U, size_t>>&, ParserTable&)>;
 
 	std::string m_name;
 
@@ -23,12 +29,12 @@ public:
 		: m_name(std::move(name)), m_parse_func(std::move(parse_func)) {
 	}
 
-	void parse(const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output) const {
-		m_parse_func(input, output);
+	void parse(const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output, ParserTable& table) const {
+		m_parse_func(input, output, table);
 	}
-	std::vector<std::pair<U, size_t>> parse(const std::vector<T>& input) const {
+	std::vector<std::pair<U, size_t>> parse(const std::vector<T>& input, ParserTable& table) const {
 		std::vector<std::pair<U, size_t>> output;
-		this->parse(input, output);
+		this->parse(input, output, table);
 		return output;
 	}
 
@@ -36,17 +42,17 @@ public:
 	Parser<T, std::pair<U, V>> then(const Parser<T, V> other) const {
 		auto combined_parse_func = [self=*this, other
 			](const std::vector<T>& input,
-			std::vector<std::pair<std::pair<U, V>, size_t>>& output) {
+			std::vector<std::pair<std::pair<U, V>, size_t>>& output, ParserTable& table) {
 			if constexpr (DO_DEBUG) {
 				std::cout << "Entering parser: " << self.m_name << " then " << other.m_name << " on input: ";
 				PRINT_CONTENT(input);
 			}
 			std::vector<std::pair<U, size_t>> first_output;
-			self.parse(input, first_output);
+			self.parse(input, first_output, table);
 			for (const auto& [first_value, first_pos] : first_output) {
 				std::vector<T> remaining_input(input.begin() + first_pos, input.end());
 				std::vector<std::pair<V, size_t>> second_output;
-				other.parse(remaining_input, second_output);
+				other.parse(remaining_input, second_output, table);
 				for (const auto& [second_value, second_pos] : second_output) {
 					output.emplace_back(std::make_pair(first_value, second_value), first_pos + second_pos);
 				}
@@ -63,17 +69,17 @@ public:
 	template<typename V>
 	Parser<T, U> followed_by(const Parser<T, V> other) const {
 		auto followed_by_parse_func = [self=*this, other
-			](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output) {
+			](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output, ParserTable& table) {
 			if constexpr (DO_DEBUG) {
 				std::cout << "Entering parser: " << self.m_name << " followed by " << other.m_name << " on input: ";
 				PRINT_CONTENT(input);
 			}
 			std::vector<std::pair<U, size_t>> first_output;
-			self.parse(input, first_output);
+			self.parse(input, first_output, table);
 			for (const auto& [first_value, first_pos] : first_output) {
 				std::vector<T> remaining_input(input.begin() + first_pos, input.end());
 				std::vector<std::pair<V, size_t>> second_output;
-				other.parse(remaining_input, second_output);
+				other.parse(remaining_input, second_output, table);
 				for (const auto& [second_value, second_pos] : second_output) {
 					output.emplace_back(first_value, first_pos + second_pos);
 				}
@@ -90,17 +96,17 @@ public:
 	template<typename V>
 	Parser<T, V> preceding(const Parser<T, V> other) const {
 		auto preceded_by_parse_func = [self=*this, other](const std::vector<T>& input,
-			std::vector<std::pair<V, size_t>>& output) {
+			std::vector<std::pair<V, size_t>>& output, ParserTable& table) {
 			if constexpr (DO_DEBUG) {
 				std::cout << "Entering parser: " << self.m_name << " preceding " << other.m_name << " on input: ";
 				PRINT_CONTENT(input);
 			}
 			std::vector<std::pair<U, size_t>> first_output;
-			self.parse(input, first_output);
+			self.parse(input, first_output, table);
 			for (const auto& [first_value, first_pos] : first_output) {
 				std::vector<T> remaining_input(input.begin() + first_pos, input.end());
 				std::vector<std::pair<V, size_t>> second_output;
-				other.parse(remaining_input, second_output);
+				other.parse(remaining_input, second_output, table);
 				for (const auto& [second_value, second_pos] : second_output) {
 					output.emplace_back(second_value, first_pos + second_pos);
 				}
@@ -115,13 +121,13 @@ public:
 
 	Parser<T, U> choice(const Parser<T, U> other) const {
 		auto choice_parse_func = [self=*this,other
-			](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output) {
+			](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output, ParserTable& table) {
 			if constexpr (DO_DEBUG) {
 				std::cout << "Entering parser: " << self.m_name << " choice " << other.m_name << " on input: ";
 				PRINT_CONTENT(input);
 			}
-			self.parse(input, output);
-			other.parse(input, output);
+			self.parse(input, output, table);
+			other.parse(input, output, table);
 		};
 		return Parser<T, U>(choice_parse_func, std::format("{} | {}", m_name, other.m_name));
 	}
@@ -131,14 +137,14 @@ public:
 
 	Parser<T, U> prioritized_choice(const Parser<T, U> other) const {
 		auto prioritized_parse_func = [self=*this, other
-			](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output) {
+			](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output, ParserTable& table) {
 			if constexpr (DO_DEBUG) {
 				std::cout << "Entering parser: " << self.m_name << " prioritized choice " << other.m_name << " on input: ";
 				PRINT_CONTENT(input);
 			}
-			self.parse(input, output);
+			self.parse(input, output, table);
 			if (output.empty()) {
-				other.parse(input, output);
+				other.parse(input, output, table);
 			}
 		};
 		return Parser<T, U>(prioritized_parse_func, std::format("{} || {}", m_name, other.m_name));
@@ -152,7 +158,7 @@ public:
 		static_assert(greedy == true, "Non-greedy repetition not implemented yet");
 		if constexpr (empty) {
 			auto repetition_parse_func = [self = *this](const std::vector<T>& input,
-				std::vector<std::pair<std::vector<U>, size_t>>& output) {
+				std::vector<std::pair<std::vector<U>, size_t>>& output, ParserTable& table) {
 				if constexpr (DO_DEBUG) {
 					std::cout << "Entering parser: " << self.m_name << " repetition * on input: ";
 					PRINT_CONTENT(input);
@@ -164,7 +170,7 @@ public:
 					frontier.pop_back();
 					std::vector<T> remaining_input(input.begin() + current_pos, input.end());
 					std::vector<std::pair<U, size_t>> temp_output;
-					self.parse(remaining_input, temp_output);
+					self.parse(remaining_input, temp_output, table);
 					if (temp_output.empty()) {
 						output.emplace_back(current_values, current_pos);
 						continue;
@@ -180,7 +186,7 @@ public:
 		}
 		else {
 			auto repetition_parse_func = [self = *this](const std::vector<T>& input,
-				std::vector<std::pair<std::vector<U>, size_t>>& output) {
+				std::vector<std::pair<std::vector<U>, size_t>>& output, ParserTable& table) {
 				if constexpr (DO_DEBUG) {
 					std::cout << "Entering parser: " << self.m_name << " repetition + on input: ";
 					PRINT_CONTENT(input);
@@ -193,7 +199,7 @@ public:
 					frontier.pop_back();
 					std::vector<T> remaining_input(input.begin() + current_pos, input.end());
 					std::vector<std::pair<U, size_t>> temp_output;
-					self.parse(remaining_input, temp_output);
+					self.parse(remaining_input, temp_output, table);
 					if (temp_output.empty()) {
 						if (frontier_initialized) {
 							output.emplace_back(current_values, current_pos);
@@ -221,9 +227,9 @@ public:
 	template<typename V>
 	Parser<T, V> map(std::function<V(U)> transform, std::string name = "?") const {
 		auto map_parse_func = [self=*this, transform](const std::vector<T>& input,
-			std::vector<std::pair<V, size_t>>& output) {
+			std::vector<std::pair<V, size_t>>& output, ParserTable& table) {
 			std::vector<std::pair<U, size_t>> temp_output;
-			self.parse(input, temp_output);
+			self.parse(input, temp_output, table);
 			for (const auto& [value, pos] : temp_output) {
 				output.emplace_back(transform(value), pos);
 			}
@@ -237,9 +243,9 @@ public:
 
 	Parser<T, U> filter(std::function<bool(U)> predicate, std::string name = "?") const {
 		auto filter_parse_func = [self=*this, predicate](const std::vector<T>& input,
-			std::vector<std::pair<U, size_t>>& output) {
+			std::vector<std::pair<U, size_t>>& output, ParserTable& table) {
 			std::vector<std::pair<U, size_t>> temp_output;
-			self.parse(input, temp_output);
+			self.parse(input, temp_output, table);
 			for (const auto& [value, pos] : temp_output) {
 				if (predicate(value)) {
 					output.emplace_back(value, pos);
@@ -253,9 +259,10 @@ public:
 	}
 
 	Parser<T, U> final() const {
-		auto final_parse_func = [self=*this](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output) {
+		auto final_parse_func = [self=*this](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output,
+			ParserTable& table) {
 			std::vector<std::pair<U, size_t>> temp_output;
-			self.parse(input, temp_output);
+			self.parse(input, temp_output, table);
 			for (const auto& [value, pos] : temp_output) {
 				if (pos == input.size()) {
 					output.emplace_back(value, pos);
@@ -270,9 +277,9 @@ public:
 
 	Parser<T, std::optional<U>> optional() const {
 		auto optional_parse_func = [self=*this](const std::vector<T>& input,
-			std::vector<std::pair<std::optional<U>, size_t>>& output) {
+			std::vector<std::pair<std::optional<U>, size_t>>& output, ParserTable& table) {
 			std::vector<std::pair<U, size_t>> temp_output;
-			self.parse(input, temp_output);
+			self.parse(input, temp_output, table);
 			for (const auto& [value, pos] : temp_output) {
 				output.emplace_back(value, pos);
 			}
@@ -288,9 +295,9 @@ public:
 
 	Parser<T, std::optional<U>> always_optional() const {
 		auto always_optional_parse_func = [self=*this](const std::vector<T>& input,
-			std::vector<std::pair<std::optional<U>, size_t>>& output) {
+			std::vector<std::pair<std::optional<U>, size_t>>& output, ParserTable& table) {
 			std::vector<std::pair<U, size_t>> temp_output;
-			self.parse(input, temp_output);
+			self.parse(input, temp_output, table);
 			for (const auto& [value, pos] : temp_output) {
 				output.emplace_back(value, pos);
 			}
@@ -333,7 +340,7 @@ std::string try_infer_name(T value) {
 
 template<typename T>
 Parser<T, T> symbol(T sym, std::string name) {
-	auto symbol_parse_func = [sym](const std::vector<T>& input, std::vector<std::pair<T, size_t>>& output) {
+	auto symbol_parse_func = [sym](const std::vector<T>& input, std::vector<std::pair<T, size_t>>& output, ParserTable&) {
 		if (!input.empty() && input[0] == sym) {
 			output.emplace_back(sym, 1);
 		}
@@ -346,7 +353,7 @@ Parser<T, T> symbol(T sym) {
 }
 inline Parser<char, char> symbol(char sym, std::string name, bool ignore_case) {
 	auto symbol_parse_func = [sym, ignore_case](const std::vector<char>& input,
-		std::vector<std::pair<char, size_t>>& output) {
+		std::vector<std::pair<char, size_t>>& output, ParserTable&) {
 		if (!input.empty()) {
 			if (ignore_case) {
 				if (std::tolower(static_cast<unsigned char>(input[0])) == std::tolower(static_cast<unsigned char>(sym))) {
@@ -367,7 +374,8 @@ inline Parser<char, char> symbol(char sym, bool ignore_case) {
 }
 template<typename T>
 Parser<T, T> symbols(std::vector<T> syms, std::string name) {
-	auto symbols_parse_func = [syms](const std::vector<T>& input, std::vector<std::pair<T, size_t>>& output) {
+	auto symbols_parse_func = [syms
+		](const std::vector<T>& input, std::vector<std::pair<T, size_t>>& output, ParserTable&) {
 		if (!input.empty() && std::find(syms.begin(), syms.end(), input[0]) != syms.end()) {
 			output.emplace_back(input[0], 1);
 		}
@@ -376,7 +384,7 @@ Parser<T, T> symbols(std::vector<T> syms, std::string name) {
 }
 inline Parser<char, char> symbols(std::vector<char> syms, std::string name, bool ignore_case) {
 	auto symbols_parse_func = [syms, ignore_case](const std::vector<char>& input,
-		std::vector<std::pair<char, size_t>>& output) {
+		std::vector<std::pair<char, size_t>>& output, ParserTable&) {
 		if (!input.empty()) {
 			if (ignore_case) {
 				for (const auto& sym : syms) {
@@ -399,7 +407,7 @@ inline Parser<char, char> symbols(std::vector<char> syms, std::string name, bool
 template<typename T>
 Parser<T, std::vector<T>> token(std::vector<T> tok, std::string name) {
 	auto token_parse_func = [tok
-		](const std::vector<T>& input, std::vector<std::pair<std::vector<T>, size_t>>& output) {
+		](const std::vector<T>& input, std::vector<std::pair<std::vector<T>, size_t>>& output, ParserTable&) {
 		if (input.size() >= tok.size() && std::equal(tok.begin(), tok.end(), input.begin())) {
 			output.emplace_back(tok, tok.size());
 		}
@@ -412,7 +420,7 @@ Parser<T, std::vector<T>> token(std::vector<T> tok) {
 }
 inline Parser<char, std::vector<char>> token(std::vector<char> tok, std::string name, bool ignore_case) {
 	auto token_parse_func = [tok, ignore_case](const std::vector<char>& input,
-		std::vector<std::pair<std::vector<char>, size_t>>& output) {
+		std::vector<std::pair<std::vector<char>, size_t>>& output, ParserTable&) {
 		if (input.size() >= tok.size()) {
 			if (ignore_case) {
 				bool match = true;
@@ -447,7 +455,7 @@ inline Parser<char, std::vector<char>> token(std::string tok, bool ignore_case =
 template<typename T>
 Parser<T, std::vector<T>> tokens(std::vector<std::vector<T>> toks, std::string name) {
 	auto tokens_parse_func = [toks, name
-		](const std::vector<T>& input, std::vector<std::pair<std::vector<T>, size_t>>& output) {
+		](const std::vector<T>& input, std::vector<std::pair<std::vector<T>, size_t>>& output, ParserTable&) {
 		if constexpr (Parser<T, std::vector<T>>::DO_DEBUG) {
 			std::cout << "Entering parser: (tokens \"" << name << "\") on input: ";
 			PRINT_CONTENT(input);
@@ -462,7 +470,7 @@ Parser<T, std::vector<T>> tokens(std::vector<std::vector<T>> toks, std::string n
 }
 inline Parser<char, std::vector<char>> tokens(std::vector<std::vector<char>> toks, std::string name, bool ignore_case) {
 	auto tokens_parse_func = [toks, ignore_case](const std::vector<char>& input,
-		std::vector<std::pair<std::vector<char>, size_t>>& output) {
+		std::vector<std::pair<std::vector<char>, size_t>>& output, ParserTable&) {
 		for (const auto& tok : toks) {
 			if (input.size() >= tok.size()) {
 				if (ignore_case) {
@@ -498,7 +506,8 @@ tokens(std::vector<std::string> toks, std::string name, bool ignore_case = false
 }
 
 inline Parser<char, char> symbol_range(char start, char end, std::string name = "?") {
-	auto range_parse_func = [start, end](const std::vector<char>& input, std::vector<std::pair<char, size_t>>& output) {
+	auto range_parse_func = [start, end](const std::vector<char>& input, std::vector<std::pair<char, size_t>>& output,
+		ParserTable&) {
 		if (!input.empty() && input[0] >= start && input[0] <= end) {
 			output.emplace_back(input[0], 1);
 		}
@@ -508,7 +517,8 @@ inline Parser<char, char> symbol_range(char start, char end, std::string name = 
 
 template<typename T>
 Parser<T, T> satisfy(std::function<bool(T)> predicate, std::string name = "?") {
-	auto satisfy_parse_func = [predicate](const std::vector<T>& input, std::vector<std::pair<T, size_t>>& output) {
+	auto satisfy_parse_func = [predicate](const std::vector<T>& input, std::vector<std::pair<T, size_t>>& output,
+		ParserTable&) {
 		if (!input.empty() && predicate(input[0])) {
 			output.emplace_back(input[0], 1);
 		}
@@ -517,14 +527,14 @@ Parser<T, T> satisfy(std::function<bool(T)> predicate, std::string name = "?") {
 }
 template<typename T, typename U>
 Parser<T, U> succeed(U value) {
-	auto succeed_parse_func = [value](const std::vector<T>&, std::vector<std::pair<U, size_t>>& output) {
+	auto succeed_parse_func = [value](const std::vector<T>&, std::vector<std::pair<U, size_t>>& output, ParserTable&) {
 		output.emplace_back(value, 0);
 	};
 	return Parser<T, U>(succeed_parse_func, std::format("(succeed {})", try_infer_name(value)));
 }
 template<typename T, typename U>
 Parser<T, U> fail() {
-	auto fail_parse_func = [](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output) {
+	auto fail_parse_func = [](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output, ParserTable&) {
 		// Always fails, produces no output
 	};
 	return Parser<T, U>(fail_parse_func, "(fail)");
@@ -532,7 +542,7 @@ Parser<T, U> fail() {
 
 template<typename T, typename U>
 Parser<T, U> parse_eof(U value) {
-	auto eof_parse_func = [value](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output) {
+	auto eof_parse_func = [value](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output, ParserTable&) {
 		if (input.empty()) {
 			output.emplace_back(value, 0);
 		}
