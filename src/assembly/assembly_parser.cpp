@@ -470,8 +470,7 @@ namespace assembly {
 			is_component_type(assembly_parse_component::type::MEMORY).map<assembly_result>(
 				[](const assembly_parse_component& comp) {
 					return assembly_result{
-						std::get<machine::register_t>(
-							std::get<assembly_memory>(comp.value).value)
+						std::get<assembly_memory>(comp.value)
 					};
 				}, "to_result");
 
