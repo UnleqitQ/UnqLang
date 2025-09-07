@@ -894,20 +894,21 @@ namespace machine {
 	}
 
 	void print_registers(const register_file& regs) {
-		std::cout << "EAX: " << std::hex << regs.eax << " "
-			<< "EBX: " << std::hex << regs.ebx << " "
-			<< "ECX: " << std::hex << regs.ecx << " "
-			<< "EDX: " << std::hex << regs.edx << " "
-			<< "ESI: " << std::hex << regs.esi << " "
-			<< "EDI: " << std::hex << regs.edi << " "
-			<< "EBP: " << std::hex << regs.ebp << " "
-			<< "ESP: " << std::hex << regs.esp << " | "
-			<< "CF: " << regs.flags.cf
-			<< " ZF: " << regs.flags.zf
-			<< " SF: " << regs.flags.sf
-			<< " OF: " << regs.flags.of
-			<< " PF: " << regs.flags.pf
-			<< std::dec;
+		std::cout << std::format("EAX: 0x{:08X} ({}) , ", regs.eax, static_cast<int32_t>(regs.eax));
+		std::cout << std::format("EBX: 0x{:08X} ({}) , ", regs.ebx, static_cast<int32_t>(regs.ebx));
+		std::cout << std::format("ECX: 0x{:08X} ({}) , ", regs.ecx, static_cast<int32_t>(regs.ecx));
+		std::cout << std::format("EDX: 0x{:08X} ({}) , ", regs.edx, static_cast<int32_t>(regs.edx));
+		std::cout << std::format("ESI: 0x{:08X} ({}) , ", regs.esi, static_cast<int32_t>(regs.esi));
+		std::cout << std::format("EDI: 0x{:08X} ({}) , ", regs.edi, static_cast<int32_t>(regs.edi));
+		std::cout << std::format("EBP: 0x{:08X} ({}) , ", regs.ebp, static_cast<int32_t>(regs.ebp));
+		std::cout << std::format("ESP: 0x{:08X} ({}) | ", regs.esp, static_cast<int32_t>(regs.esp));
+		std::cout << std::format("FLAGS: [C={} O={} Z={} S={} P={} A={}] ",
+			regs.flags.cf ? 1 : 0,
+			regs.flags.of ? 1 : 0,
+			regs.flags.zf ? 1 : 0,
+			regs.flags.sf ? 1 : 0,
+			regs.flags.pf ? 1 : 0,
+			regs.flags.af ? 1 : 0);
 	}
 
 	void computer::step() {
