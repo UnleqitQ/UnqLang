@@ -310,6 +310,37 @@ public:
 	}
 };
 
+template<typename T, typename U>
+Parser<T, U> make_parser(typename Parser<T, U>::ParseFunction parse_func, std::string name = "?") {
+	return Parser<T, U>(parse_func, name);
+}
+
+template<typename T, typename U>
+Parser<T, U> lookup_parser(std::string name, ParserTable& table) {
+	if (const auto it = table.find(name); it != table.end()) {
+		return *std::static_pointer_cast<Parser<T, U>>(it->second);
+	}
+	auto placeholder = std::make_shared<Parser<T, U>>(
+		[](const std::vector<T>&, std::vector<std::pair<U, size_t>>&, ParserTable&) {
+			// does nothing, always fails
+		},
+		name);
+	table[name] = placeholder;
+	return *placeholder;
+}
+
+template<typename T, typename U>
+Parser<T, U> ref_parser(std::string name) {
+	return Parser<T, U>(
+		[name](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output, ParserTable& table) {
+			if (const auto it = table.find(name); it != table.end()) {
+				auto parser = std::static_pointer_cast<Parser<T, U>>(it->second);
+				parser->parse(input, output, table);
+			}
+		},
+		name);
+}
+
 template<typename T>
 std::string try_infer_name(T value) {
 	if constexpr (std::is_same_v<T, char>) {
