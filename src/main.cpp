@@ -35,12 +35,22 @@ fact:
 	cmp eax, 1
 	jle fact_basecase
 	; make space on stack
-	sub esp, es
-	push eax
+	push ebp
+	mov ebp, esp
+	sub esp, 4
+	; save eax
+	mov [ebp-4], eax
+	; compute eax - 1
 	dec eax
+	; recursive call
 	call fact
-	pop ebx
-	mul eax, eax, ebx
+	; restore ebx
+	mov ebx, [ebp-4]
+	; multiply eax by ebx
+	mul eax, ebx
+	; restore stack
+	mov esp, ebp
+	pop ebp
 	ret
 fact_basecase:
 	mov eax, 1
