@@ -192,7 +192,6 @@ namespace machine {
 	struct instruction_t {
 		operation op;
 		union {
-			args_t<2, true> args_2r;
 			args_t<2, false> args_2n;
 			args_t<1, true> args_1r;
 			args_t<1, false> args_1n;
@@ -201,9 +200,6 @@ namespace machine {
 		} args;
 
 		instruction_t() : op(operation::NOP), args{.args_0n = {}} {
-		}
-		instruction_t(const operation oper, const args_t<2, true>& a)
-			: op(oper), args{.args_2r = a} {
 		}
 		instruction_t(const operation oper, const args_t<2, false>& a)
 			: op(oper), args{.args_2n = a} {
