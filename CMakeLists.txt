@@ -5,5 +5,8 @@ set(CMAKE_CXX_STANDARD 23)
 
 add_executable(MiscMachine
 
+	src/assembly/assembly_parser.cpp
+	src/assembly/assembly.cpp
+	src/machine/computer.cpp
 	src/main.cpp
 )
