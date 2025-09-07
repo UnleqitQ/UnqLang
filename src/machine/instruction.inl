@@ -217,7 +217,9 @@ namespace machine {
 	inline std::ostream& operator<<(std::ostream& os, const instruction_t& inst) {
 		os << inst.op;
 		switch (inst.op) {
-			// Two operands, with result
+			// One read only, one read & write
+			case operation::MOV:
+			case operation::LEA:
 			case operation::ADD:
 			case operation::ADC:
 			case operation::SUB:
@@ -238,25 +240,6 @@ namespace machine {
 			case operation::ROR:
 			case operation::RCL:
 			case operation::RCR: {
-				const auto& args = inst.args.args_2r;
-				if (args.result.type == result_arg::type_t::MEMORY) {
-					os << ' ' << args.result.value.mem.size;
-				}
-				os << ' ' << args.result << ", " << args.operands[0] << ", " << args.operands[1];
-				break;
-			}
-			// Two operands, no result
-			case operation::CMP:
-			case operation::TEST: {
-				const auto& args = inst.args.args_2n;
-				os << ' ' << args.operands[0] << ", " << args.operands[1];
-				break;
-			}
-			// One operand, with result
-			case operation::MOV:
-			case operation::LEA:
-			case operation::NOT:
-			case operation::NEG: {
 				const auto& args = inst.args.args_1r;
 				if (args.result.type == result_arg::type_t::MEMORY) {
 					os << ' ' << args.result.value.mem.size;
@@ -264,7 +247,28 @@ namespace machine {
 				os << ' ' << args.result << ", " << args.operands[0];
 				break;
 			}
-			// One operand, no result
+			// Two read only
+			case operation::CMP:
+			case operation::TEST: {
+				const auto& args = inst.args.args_2n;
+				os << ' ' << args.operands[0] << ", " << args.operands[1];
+				break;
+			}
+			// One read & write
+			case operation::NOT:
+			case operation::NEG:
+			case operation::INC:
+			case operation::DEC:
+			case operation::POP:
+			case operation::IN: {
+				const auto& args = inst.args.args_0r;
+				if (args.result.type == result_arg::type_t::MEMORY) {
+					os << ' ' << args.result.value.mem.size;
+				}
+				os << ' ' << args.result;
+				break;
+			}
+			// One read only
 			case operation::PUSH:
 			case operation::JMP:
 			case operation::JZ:
@@ -291,19 +295,7 @@ namespace machine {
 				os << ' ' << args.operands[0];
 				break;
 			}
-			// No operands, with result
-			case operation::INC:
-			case operation::DEC:
-			case operation::POP:
-			case operation::IN: {
-				const auto& args = inst.args.args_0r;
-				if (args.result.type == result_arg::type_t::MEMORY) {
-					os << ' ' << args.result.value.mem.size;
-				}
-				os << ' ' << args.result;
-				break;
-			}
-			// No operands, no result
+			// No arguments
 			case operation::NOP:
 			case operation::RET:
 			case operation::PUSHA:
