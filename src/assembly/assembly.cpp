@@ -148,17 +148,7 @@ namespace assembly {
 		machine::instruction_t result;
 		std::visit([&]<typename T0>(const T0& a) {
 			using T = std::decay_t<T0>;
-			if constexpr (std::is_same_v<T, assembly_instruction::args_t<2, true>>) {
-				// Binary operation with result: res, op1, op2
-				const auto res = a.result;
-				const auto op1 = a.operands[0];
-				const auto op2 = a.operands[1];
-				result = machine::instruction_t(op, machine::args_t<2, true>{
-					{assemble_operand(op1, label_map), assemble_operand(op2, label_map)},
-					assemble_result(res, label_map)
-				});
-			}
-			else if constexpr (std::is_same_v<T, assembly_instruction::args_t<2, false>>) {
+			if constexpr (std::is_same_v<T, assembly_instruction::args_t<2, false>>) {
 				// Binary operation without result: op1, op2
 				const auto op1 = a.operands[0];
 				const auto op2 = a.operands[1];

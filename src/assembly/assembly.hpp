@@ -178,7 +178,6 @@ namespace assembly {
 
 		machine::operation op;
 		std::variant<
-			args_t<2, true>, // Binary with result
 			args_t<2, false>, // Binary without result
 			args_t<1, true>, // Unary with result
 			args_t<1, false>, // Unary without result
