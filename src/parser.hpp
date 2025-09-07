@@ -308,6 +308,54 @@ public:
 	Parser<T, std::optional<U>> operator-() const {
 		return this->always_optional();
 	}
+
+	template<typename V>
+	Parser<T, std::vector<U>> separated_by(const Parser<T, V> separator, bool allow_trailing = false) const {
+		auto separated_by_parse_func = [self=*this, separator, allow_trailing
+			](const std::vector<T>& input, std::vector<std::pair<std::vector<U>, size_t>>& output, ParserTable& table) {
+			std::vector<std::pair<std::vector<U>, size_t>> frontier;
+			frontier.emplace_back(std::vector<U>{}, 0);
+			while (!frontier.empty()) {
+				auto [current_values, current_pos] = frontier.back();
+				frontier.pop_back();
+				std::vector<T> remaining_input(input.begin() + current_pos, input.end());
+				std::vector<std::pair<U, size_t>> temp_output;
+				self.parse(remaining_input, temp_output, table);
+				if (temp_output.empty()) {
+					if (allow_trailing || current_values.size() > 0) {
+						output.emplace_back(current_values, current_pos);
+					}
+					continue;
+				}
+				for (const auto& [value, pos] : temp_output) {
+					auto new_values = current_values;
+					new_values.push_back(value);
+					std::vector<T> next_input(remaining_input.begin() + pos, remaining_input.end());
+					std::vector<std::pair<V, size_t>> sep_output;
+					separator.parse(next_input, sep_output, table);
+					if (sep_output.empty()) {
+						frontier.emplace_back(new_values, current_pos + pos);
+					}
+					else {
+						for (const auto& [sep_value, sep_pos] : sep_output) {
+							frontier.emplace_back(new_values, current_pos + pos + sep_pos);
+						}
+					}
+				}
+			}
+		};
+		// allow trailing: operator %, disallow trailing: operator /
+		std::string sep_name = allow_trailing ? std::format("{} % {}", m_name, separator.m_name) : std::format("{} / {}", m_name, separator.m_name);
+		return Parser<T, std::vector<U>>(separated_by_parse_func, sep_name);
+	}
+	template<typename V>
+	Parser<T, std::vector<U>> operator%(const Parser<T, V> other) const {
+		return this->separated_by(other, true);
+	}
+	template<typename V>
+	Parser<T, std::vector<U>> operator/(const Parser<T, V> other) const {
+		return this->separated_by(other, false);
+	}
 };
 
 template<typename T, typename U>
