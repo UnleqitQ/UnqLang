@@ -4,12 +4,8 @@
 #include "parser.hpp"
 #include "machine/computer.hpp"
 
-// F*CK, X86 saves the result in the first operand, I thought there were result, op1 [, op2]
-// leaving this comment, for future me to remember this bullshit
-// like I did more work, and now even more work to fix this, I hate myself
-// But else it works perfectly, nasm style assembly, with comments, labels, everything
+// Now it works (mostly) perfectly, nasm style assembly, with comments, labels, everything
 // well im missing local labels, but I gotta look into them further
-// hey writing this is kinda fun XD, tomorrow I'll be like "why the hell did I write so much?", oh well
 
 // maybe I should add data commands too, like db, dw, dd, dq, and resb, resw, resd, resq, but for that to work,
 // I need to add segments, like .data, .bss, .text, and then handle them properly in the assembler
@@ -18,9 +14,6 @@
 // maybe I should add a directive to set the origin, like org 0x100, so that the program starts at that address in memory
 // but then I need to handle that in the assembler too, and make sure the instruction pointer starts there
 // also interrupts, but that's for another time
-
-// ok now I really gotta stop writing comments, this is getting out of hand
-// and I need to sleep, it's past 1am
 
 int main() {
 	// Test the assembly tokenizer
