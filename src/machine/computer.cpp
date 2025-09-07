@@ -573,9 +573,9 @@ namespace machine {
 			}
 			case operation::ADC:
 			case operation::ADD: {
-				const auto args = instr.args.args_2r;
-				uint32_t val1 = retrieve_operand_value(args.operands[0]);
-				uint32_t val2 = retrieve_operand_value(args.operands[1]);
+				const auto args = instr.args.args_1r;
+				uint32_t val1 = retrieve_result_value(args.result);
+				uint32_t val2 = retrieve_operand_value(args.operands[0]);
 				data_size_t size = get_result_size(args.result);
 				uint32_t result = handle_add(instr.op == operation::ADC, val1, val2, size, m_registers);
 				set_result_value(args.result, result);
@@ -583,9 +583,9 @@ namespace machine {
 			}
 			case operation::SBB:
 			case operation::SUB: {
-				const auto args = instr.args.args_2r;
-				uint32_t val1 = retrieve_operand_value(args.operands[0]);
-				uint32_t val2 = retrieve_operand_value(args.operands[1]);
+				const auto args = instr.args.args_1r;
+				uint32_t val1 = retrieve_result_value(args.result);
+				uint32_t val2 = retrieve_operand_value(args.operands[0]);
 				data_size_t size = get_result_size(args.result);
 				uint32_t result = handle_sub(instr.op == operation::SBB, val1, val2, size, m_registers);
 				set_result_value(args.result, result);
@@ -593,9 +593,9 @@ namespace machine {
 			}
 			case operation::MUL:
 			case operation::IMUL: {
-				const auto args = instr.args.args_2r;
-				int32_t val1 = retrieve_operand_value(args.operands[0]);
-				int32_t val2 = retrieve_operand_value(args.operands[1]);
+				const auto args = instr.args.args_1r;
+				int32_t val1 = retrieve_result_value(args.result);
+				int32_t val2 = retrieve_operand_value(args.operands[0]);
 				data_size_t size = get_result_size(args.result);
 				uint32_t result = handle_mul(instr.op == operation::IMUL, val1, val2, size, m_registers);
 				set_result_value(args.result, result);
@@ -603,9 +603,9 @@ namespace machine {
 			}
 			case operation::DIV:
 			case operation::IDIV: {
-				const auto args = instr.args.args_2r;
-				int32_t dividend = retrieve_operand_value(args.operands[0]);
-				int32_t divisor = retrieve_operand_value(args.operands[1]);
+				const auto args = instr.args.args_1r;
+				int32_t dividend = retrieve_result_value(args.result);
+				int32_t divisor = retrieve_operand_value(args.operands[0]);
 				data_size_t size = get_result_size(args.result);
 				uint32_t result = handle_div(instr.op == operation::IDIV, dividend, divisor, size, m_registers);
 				set_result_value(args.result, result);
@@ -613,9 +613,9 @@ namespace machine {
 			}
 			case operation::MOD:
 			case operation::IMOD: {
-				const auto args = instr.args.args_2r;
-				int32_t dividend = retrieve_operand_value(args.operands[0]);
-				int32_t divisor = retrieve_operand_value(args.operands[1]);
+				const auto args = instr.args.args_1r;
+				int32_t dividend = retrieve_result_value(args.result);
+				int32_t divisor = retrieve_operand_value(args.operands[0]);
 				data_size_t size = get_result_size(args.result);
 				uint32_t result = handle_mod(instr.op == operation::IMOD, dividend, divisor, size, m_registers);
 				set_result_value(args.result, result);
@@ -670,8 +670,8 @@ namespace machine {
 				break;
 			}
 			case operation::NEG: {
-				const auto args = instr.args.args_1r;
-				uint32_t val = retrieve_operand_value(args.operands[0]);
+				const auto args = instr.args.args_0r;
+				uint32_t val = retrieve_result_value(args.result);
 				data_size_t size = get_result_size(args.result);
 				uint32_t result = handle_sub(false, 0, val, size, m_registers);
 				m_registers.flags.cf = val != 0; // Set CF if operand was non-zero
@@ -710,17 +710,17 @@ namespace machine {
 			case operation::AND:
 			case operation::OR:
 			case operation::XOR: {
-				const auto args = instr.args.args_2r;
-				uint32_t val1 = retrieve_operand_value(args.operands[0]);
-				uint32_t val2 = retrieve_operand_value(args.operands[1]);
+				const auto args = instr.args.args_1r;
+				uint32_t val1 = retrieve_result_value(args.result);
+				uint32_t val2 = retrieve_operand_value(args.operands[0]);
 				data_size_t size = get_result_size(args.result);
 				uint32_t result = handle_logical(instr.op, val1, val2, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
 			case operation::NOT: {
-				const auto args = instr.args.args_1r;
-				uint32_t val = retrieve_operand_value(args.operands[0]);
+				const auto args = instr.args.args_0r;
+				uint32_t val = retrieve_result_value(args.result);
 				data_size_t size = get_result_size(args.result);
 				uint32_t mask;
 				switch (size) {
@@ -744,9 +744,9 @@ namespace machine {
 			case operation::SHL:
 			case operation::SHR:
 			case operation::SAR: {
-				const auto args = instr.args.args_2r;
-				uint32_t val = retrieve_operand_value(args.operands[0]);
-				uint32_t count = retrieve_operand_value(args.operands[1]) & 0x1F; // Only lower 5 bits are used
+				const auto args = instr.args.args_1r;
+				uint32_t val = retrieve_result_value(args.result);
+				uint32_t count = retrieve_operand_value(args.operands[0]) & 0x1F; // Only lower 5 bits are used
 				data_size_t size = get_result_size(args.result);
 				uint32_t result = handle_shift(instr.op, val, count, size, m_registers);
 				set_result_value(args.result, result);
@@ -756,9 +756,9 @@ namespace machine {
 			case operation::ROR:
 			case operation::RCL:
 			case operation::RCR: {
-				const auto args = instr.args.args_2r;
-				uint32_t val = retrieve_operand_value(args.operands[0]);
-				uint32_t count = retrieve_operand_value(args.operands[1]) & 0x1F; // Only lower 5 bits are used
+				const auto args = instr.args.args_1r;
+				uint32_t val = retrieve_result_value(args.result);
+				uint32_t count = retrieve_operand_value(args.operands[0]) & 0x1F; // Only lower 5 bits are used
 				data_size_t size = get_result_size(args.result);
 				uint32_t result = handle_rotate(instr.op, val, count, size, m_registers);
 				set_result_value(args.result, result);
