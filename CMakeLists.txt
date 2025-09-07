@@ -9,4 +9,8 @@ add_executable(MiscMachine
 	src/assembly/assembly.cpp
 	src/machine/computer.cpp
 	src/main.cpp
+	src/compiler/lexer.cpp
+	src/compiler/lexer.hpp
+	src/compiler/ast.cpp
+	src/compiler/ast.hpp
 )

@@ -497,6 +497,15 @@ tokens(std::vector<std::string> toks, std::string name, bool ignore_case = false
 	return tokens(char_toks, name, ignore_case);
 }
 
+inline Parser<char, char> symbol_range(char start, char end, std::string name = "?") {
+	auto range_parse_func = [start, end](const std::vector<char>& input, std::vector<std::pair<char, size_t>>& output) {
+		if (!input.empty() && input[0] >= start && input[0] <= end) {
+			output.emplace_back(input[0], 1);
+		}
+	};
+	return Parser<char, char>(range_parse_func, std::format("(range '{}'-'{}')", start, end));
+}
+
 template<typename T>
 Parser<T, T> satisfy(std::function<bool(T)> predicate, std::string name = "?") {
 	auto satisfy_parse_func = [predicate](const std::vector<T>& input, std::vector<std::pair<T, size_t>>& output) {
@@ -519,6 +528,26 @@ Parser<T, U> fail() {
 		// Always fails, produces no output
 	};
 	return Parser<T, U>(fail_parse_func, "(fail)");
+}
+
+template<typename T, typename U>
+Parser<T, U> parse_eof(U value) {
+	auto eof_parse_func = [value](const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output) {
+		if (input.empty()) {
+			output.emplace_back(value, 0);
+		}
+	};
+	return Parser<T, U>(eof_parse_func, "(eof)");
+}
+
+template<typename T>
+auto flatten(T&& value) {
+	return std::make_tuple(std::forward<T>(value));
+}
+
+template<typename T, typename U>
+auto flatten(const std::pair<T, U>& p) {
+	return std::tuple_cat(flatten(p.first), flatten(p.second));
 }
 
 inline std::vector<char> operator""_t(const char* str, size_t len) {
