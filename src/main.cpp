@@ -3,8 +3,6 @@
 #include "compiler/lexer.hpp"
 #include "compiler/ast.hpp"
 
-// TODO: struct type declaration to nodes, bc it's more like a statement than a type
-
 int main() {
 	std::string source_code = R"(
 struct Point {

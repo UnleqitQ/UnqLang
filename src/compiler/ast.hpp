@@ -23,9 +23,13 @@ namespace compiler {
 		std::vector<std::shared_ptr<ast_type_node>> parameters;
 		void print(int indent = 0) const;
 	};
-	struct ast_type_struct {
+	struct ast_type_member {
 		std::string name;
-		std::vector<std::pair<std::string, std::shared_ptr<ast_type_node>>> members;
+		std::shared_ptr<ast_type_node> type;
+		void print(int indent = 0) const;
+	};
+	struct ast_type_members {
+		std::vector<ast_type_member> members;
 		void print(int indent = 0) const;
 	};
 	struct ast_type_node {
@@ -46,7 +50,7 @@ namespace compiler {
 			ast_type_pointer, // Pointer
 			ast_type_array, // Array
 			ast_type_function, // Function
-			ast_type_struct, // Struct
+			ast_type_members, // Struct
 			std::string // Custom
 		> value;
 		ast_type_node() : type(type_t::Void), value(std::monostate{}) {
@@ -208,6 +212,11 @@ namespace compiler {
 		std::shared_ptr<ast_node> body; // Must be a BlockStatement
 		void print(int indent = 0) const;
 	};
+	struct ast_statement_struct_declaration {
+		std::string name;
+		ast_type_members body;
+		void print(int indent = 0) const;
+	};
 	struct ast_statement_if {
 		std::shared_ptr<ast_node> condition;
 		std::shared_ptr<ast_node> then_branch;
@@ -243,14 +252,17 @@ namespace compiler {
 			UnaryExpression,
 			BinaryExpression,
 			FunctionCall,
-			VariableDeclaration,
-			FunctionDeclaration,
 			IfStatement,
 			WhileStatement,
 			// ForStatement,
 			ReturnStatement,
 			ExpressionStatement,
 			BlockStatement,
+
+			VariableDeclaration,
+			FunctionDeclaration,
+			StructDeclaration,
+
 			Unknown,
 		} type;
 		std::variant<
@@ -262,13 +274,16 @@ namespace compiler {
 			ast_member_access, // MemberAccess
 			ast_expression_ternary, // TernaryExpression
 			ast_expression_call, // FunctionCall
-			ast_statement_variable_declaration, // VariableDeclaration
-			ast_statement_function_declaration, // FunctionDeclaration
 			ast_statement_if, // IfStatement
 			ast_statement_while, // WhileStatement
 			ast_statement_return, // ReturnStatement
 			ast_statement_expression, // ExpressionStatement
 			ast_statement_block, // BlockStatement
+
+			ast_statement_variable_declaration, // VariableDeclaration
+			ast_statement_function_declaration, // FunctionDeclaration
+			ast_statement_struct_declaration, // StructDeclaration
+
 			std::monostate // Unknown
 		> value;
 		ast_node() : type(type_t::Unknown), value(std::monostate{}) {
@@ -283,7 +298,7 @@ namespace compiler {
 	struct ast_program {
 		typedef std::variant<
 			ast_statement_function_declaration, // Function declarations
-			ast_type_struct // Struct definitions
+			ast_statement_struct_declaration // Struct declarations
 		> program_element_t;
 		std::vector<program_element_t> body;
 

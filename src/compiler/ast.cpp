@@ -51,7 +51,14 @@ namespace compiler {
 			);
 		}
 		Parser<lexer_token, lexer_token> identifier() {
-			return token_type(lexer_token::type_t::Identifier);
+			return Parser<lexer_token, lexer_token>(
+				[](const std::vector<lexer_token>& input, std::vector<std::pair<lexer_token, size_t>>& output, ParserTable&) {
+					if (!input.empty() && input[0].type == lexer_token::type_t::Identifier) {
+						output.emplace_back(input[0], 1);
+					}
+				},
+				"(identifier)"
+			);
 		}
 		Parser<lexer_token, lexer_token> integer() {
 			return token_type(lexer_token::type_t::Integer);
@@ -283,27 +290,37 @@ namespace compiler {
 			"TypeDefinition"
 		);
 
-		const Parser<lexer_token, std::pair<std::string, std::shared_ptr<ast_type_node>>> ast_type_struct_member_parser =
-			(ast_type_definition_parser + util::identifier() < util::punctuation(';'))
-			.map<std::pair<std::string, std::shared_ptr<ast_type_node>>>(
+		const Parser<lexer_token, ast_type_member> ast_type_member_parser =
+			(ref_ast_type_parser + util::identifier() < util::punctuation(';'))
+			.map<ast_type_member>(
 				[](const auto& p) {
-					return std::make_pair(std::get<std::string>(p.second.value), p.first);
+					ast_type_member member;
+					member.name = std::get<std::string>(p.second.value);
+					member.type = p.first;
+					return member;
 				},
-				"StructMember"
-			).rename("StructMember");
-		const ast_type_parser_t ast_type_struct_parser =
-		(util::keyword("struct") > util::identifier() +
+				"CompositeMember"
+			).rename("CompositeMember");
+		const Parser<lexer_token, ast_type_members> ast_type_members_parser =
 			(util::punctuation('{') >
-				+ast_type_struct_member_parser
-				< util::punctuation('}')
-				< util::punctuation(';')
-			)
+				*ast_type_member_parser
+				< util::punctuation('}'))
+			.map<ast_type_members>(
+				[](const std::vector<ast_type_member>& members) {
+					ast_type_members mems;
+					mems.members = members;
+					return mems;
+				},
+				"CompositeMembers"
+			).rename("CompositeMembers");
+		const ast_type_parser_t ast_type_struct_parser = (
+			util::keyword("struct") > ast_type_members_parser
 		).map<std::shared_ptr<ast_type_node>>(
 			[](const auto& p) {
-				ast_type_struct strct;
-				strct.name = std::get<std::string>(p.first.value);
-				strct.members = p.second;
-				return std::make_shared<ast_type_node>(ast_type_node::type_t::Struct, strct);
+				return std::make_shared<ast_type_node>(
+					ast_type_node::type_t::Struct,
+					p
+				);
 			},
 			"StructType"
 		).rename("StructType");
@@ -1011,42 +1028,6 @@ namespace compiler {
 			"VariableDeclaration"
 		).rename("VariableDeclaration");
 
-	const Parser<lexer_token, std::pair<std::string, std::shared_ptr<ast_type_node>>> ast_function_parameter_parser =
-		(type_parser::ast_type_definition_parser + util::identifier())
-		.map<std::pair<std::string, std::shared_ptr<ast_type_node>>>(
-			[](const auto& p) {
-				return std::make_pair(std::get<std::string>(p.second.value), p.first);
-			},
-			"FunctionParameter"
-		).rename("FunctionParameter");
-	const ast_parser_t ast_function_declaration_parser =
-		(type_parser::ast_type_definition_parser +
-			util::identifier() +
-			(util::punctuation('(') >
-				(ast_function_parameter_parser % util::punctuation(',')) < util::punctuation(')')) +
-			ref_ast_block_parser)
-		.map<std::tuple<std::shared_ptr<ast_type_node>, std::string, std::vector<std::pair<std::string, std::shared_ptr<
-			ast_type_node>>>, std::shared_ptr<ast_node>>>(
-			[](const auto& p) {
-				return std::make_tuple(
-					p.first.first.first, std::get<std::string>(p.first.first.second.value), p.first.second, p.second
-				);
-			},
-			"FunctionDeclarationTuple"
-		).rename("FunctionDeclarationTuple")
-		.map<std::shared_ptr<ast_node>>(
-			[](const auto& p) {
-				ast_statement_function_declaration func_decl;
-				func_decl.return_type = std::get<0>(p);
-				func_decl.name = std::get<1>(p);
-				func_decl.parameters = std::get<2>(p);
-				func_decl.body = std::get<3>(p);
-				return util::make_ast_node(ast_node::type_t::FunctionDeclaration, func_decl);
-			},
-			"FunctionDeclaration"
-		).rename("FunctionDeclaration");
-
-
 	const ast_parser_t ref_ast_if_statement_parser = ref_parser<lexer_token,
 		std::shared_ptr<ast_node>>("ast_if_statement_parser");
 	const Parser<lexer_token, std::pair<std::shared_ptr<ast_node>, std::shared_ptr<ast_node>>> ast_if_clause_parser =
@@ -1113,6 +1094,56 @@ namespace compiler {
 			},
 			"ExpressionStatement"
 		).rename("ExpressionStatement");
+
+	const Parser<lexer_token, std::pair<std::string, std::shared_ptr<ast_type_node>>> ast_function_parameter_parser =
+		(type_parser::ast_type_definition_parser + util::identifier())
+		.map<std::pair<std::string, std::shared_ptr<ast_type_node>>>(
+			[](const auto& p) {
+				return std::make_pair(std::get<std::string>(p.second.value), p.first);
+			},
+			"FunctionParameter"
+		).rename("FunctionParameter");
+	const ast_parser_t ast_function_declaration_parser =
+		(type_parser::ast_type_definition_parser +
+			util::identifier() +
+			(util::punctuation('(') >
+				(ast_function_parameter_parser % util::punctuation(',')) < util::punctuation(')')) +
+			ref_ast_block_parser)
+		.map<std::tuple<std::shared_ptr<ast_type_node>, std::string, std::vector<std::pair<std::string, std::shared_ptr<
+			ast_type_node>>>, std::shared_ptr<ast_node>>>(
+			[](const auto& p) {
+				return std::make_tuple(
+					p.first.first.first, std::get<std::string>(p.first.first.second.value), p.first.second, p.second
+				);
+			},
+			"FunctionDeclarationTuple"
+		).rename("FunctionDeclarationTuple")
+		.map<std::shared_ptr<ast_node>>(
+			[](const auto& p) {
+				ast_statement_function_declaration func_decl;
+				func_decl.return_type = std::get<0>(p);
+				func_decl.name = std::get<1>(p);
+				func_decl.parameters = std::get<2>(p);
+				func_decl.body = std::get<3>(p);
+				return util::make_ast_node(ast_node::type_t::FunctionDeclaration, func_decl);
+			},
+			"FunctionDeclaration"
+		).rename("FunctionDeclaration");
+
+	const ast_parser_t ast_struct_declaration_parser =
+		((util::keyword("struct") >
+			util::identifier()) + (type_parser::ast_type_members_parser
+			< util::punctuation(';')))
+		.map<std::shared_ptr<ast_node>>(
+			[](const auto& p) {
+				ast_statement_struct_declaration struct_decl;
+				struct_decl.name = std::get<std::string>(p.first.value);
+				struct_decl.body = p.second;
+				return util::make_ast_node(ast_node::type_t::StructDeclaration, struct_decl);
+			},
+			"StructDeclaration"
+		).rename("StructDeclaration");
+
 	const ast_parser_t ast_statement_parser = (
 		ast_variable_declaration_parser ||
 		ast_if_statement_parser ||
@@ -1156,13 +1187,15 @@ namespace compiler {
 		table["ast_l12_expression_parser"] = std::make_shared<ast_parser_t>(ast_l12_expression_parser);
 		table["ast_l13_expression_parser"] = std::make_shared<ast_parser_t>(ast_l13_expression_parser);
 		table["ast_l14_expression_parser"] = std::make_shared<ast_parser_t>(ast_l14_expression_parser);
+		table["ast_l15_expression_parser"] = std::make_shared<ast_parser_t>(ast_l15_comma_parser);
+		table["ast_type_parser"] = std::make_shared<type_parser::ast_type_parser_t>(type_parser::ast_type_parser);
 		return table;
 	}
 
 	// Program
 	typedef Parser<lexer_token, std::variant<
 		ast_statement_function_declaration,
-		ast_type_struct
+		ast_statement_struct_declaration
 	>> ast_program_element_parser_t;
 
 
@@ -1175,30 +1208,31 @@ namespace compiler {
 			"FunctionDeclarationElement"
 		).map<std::variant<
 			ast_statement_function_declaration,
-			ast_type_struct
+			ast_statement_struct_declaration
 		>>(
 			[](const ast_statement_function_declaration& func_decl) {
 				return std::variant<
 					ast_statement_function_declaration,
-					ast_type_struct
+					ast_statement_struct_declaration
 				>(func_decl);
 			},
 			"FunctionDeclarationVariant"
 		);
 	const ast_program_element_parser_t ast_program_struct_declaration_parser =
-		type_parser::ast_type_struct_parser.map<ast_type_struct>(
-			[](const std::shared_ptr<ast_type_node>& type_node) {
-				return std::get<ast_type_struct>(type_node->value);
+		ast_struct_declaration_parser.map<ast_statement_struct_declaration>(
+			[](const std::shared_ptr<ast_node>& node) {
+				const auto& struct_decl = std::get<ast_statement_struct_declaration>(node->value);
+				return struct_decl;
 			},
 			"StructDeclarationElement"
 		).map<std::variant<
 			ast_statement_function_declaration,
-			ast_type_struct
+			ast_statement_struct_declaration
 		>>(
-			[](const ast_type_struct& struct_decl) {
+			[](const ast_statement_struct_declaration& struct_decl) {
 				return std::variant<
 					ast_statement_function_declaration,
-					ast_type_struct
+					ast_statement_struct_declaration
 				>(struct_decl);
 			},
 			"StructDeclarationVariant"
@@ -1294,10 +1328,10 @@ namespace compiler {
 				break;
 			}
 			case ast_type_node::type_t::Struct: {
-				const auto& strct = std::get<ast_type_struct>(node.value);
-				os << "Struct(Name: " << strct.name << ", Members: {";
+				const auto& strct = std::get<ast_type_members>(node.value);
+				os << "Struct(Members: {";
 				for (auto it = strct.members.begin(); it != strct.members.end(); ++it) {
-					os << it->first << ": " << *it->second;
+					os << it->name << ": " << *it->type;
 					auto next_it = std::next(it);
 					if (next_it != strct.members.end()) {
 						os << ", ";
@@ -1423,6 +1457,19 @@ namespace compiler {
 					<< *ternary.else_branch << ")";
 				break;
 			}
+			case ast_node::type_t::StructDeclaration: {
+				const auto& struct_decl = std::get<ast_statement_struct_declaration>(node.value);
+				os << "StructDeclaration(Name: " << struct_decl.name << ", Members: {";
+				for (size_t i = 0; i < struct_decl.body.members.size(); ++i) {
+					const auto& member = struct_decl.body.members[i];
+					os << member.name << ": " << *member.type;
+					if (i + 1 < struct_decl.body.members.size()) {
+						os << ", ";
+					}
+				}
+				os << "})";
+				break;
+			}
 			case ast_node::type_t::Unknown:
 				os << "Unknown";
 				break;
@@ -1443,10 +1490,10 @@ namespace compiler {
 					}
 					os << "  Body:\n" << *node.body << "\n";
 				}
-				else if constexpr (std::is_same_v<T0, ast_type_struct>) {
+				else if constexpr (std::is_same_v<T0, ast_statement_struct_declaration>) {
 					os << "  Struct Declaration: " << node.name << "\n  Members:\n";
-					for (const auto& member : node.members) {
-						os << "    " << member.first << ": " << *member.second << "\n";
+					for (const auto& member : node.body.members) {
+						os << "    " << member.name << ": " << *member.type << "\n";
 					}
 				}
 			}, elem);
@@ -1471,12 +1518,13 @@ namespace compiler {
 			param->print(indent + 1);
 		}
 	}
-	void ast_type_struct::print(int indent) const {
-		std::cout << std::string(indent, ' ') << "[StructType] Name: " << name << "\n";
-		std::cout << std::string(indent, ' ') << "Members:\n";
+	void ast_type_member::print(int indent) const {
+		std::cout << std::string(indent, ' ') << name << ":\n";
+		type->print(indent + 1);
+	}
+	void ast_type_members::print(int indent) const {
 		for (const auto& member : members) {
-			std::cout << std::string(indent + 1, ' ') << member.first << ": \n";
-			member.second->print(indent + 2);
+			member.print(indent);
 		}
 	}
 	void ast_type_node::print(int indent) const {
@@ -1500,7 +1548,8 @@ namespace compiler {
 				std::get<ast_type_function>(value).print(indent);
 				break;
 			case type_t::Struct:
-				std::get<ast_type_struct>(value).print(indent);
+				std::cout << std::string(indent, ' ') << "[StructType] Members:\n";
+				std::get<ast_type_members>(value).print(indent + 1);
 				break;
 			case type_t::Custom:
 				std::cout << std::string(indent, ' ') << "[Type] Custom: " << std::get<std::string>(value) << "\n";
@@ -1638,6 +1687,9 @@ namespace compiler {
 			case type_t::FunctionDeclaration:
 				std::get<ast_statement_function_declaration>(value).print(indent);
 				break;
+			case type_t::StructDeclaration:
+				std::get<ast_statement_struct_declaration>(value).print(indent);
+				break;
 			case type_t::IfStatement:
 				std::get<ast_statement_if>(value).print(indent);
 				break;
@@ -1665,6 +1717,12 @@ namespace compiler {
 		}
 	}
 
+	void ast_statement_struct_declaration::print(int indent) const {
+		const std::string indent_str(indent, ' ');
+		std::cout << indent_str << "[StructDeclaration] Name: " << name << "\n";
+		std::cout << indent_str << "Members:\n";
+		body.print(indent + 1);
+	}
 	void ast_program::print(int indent) const {
 		const std::string indent_str(indent, ' ');
 		std::cout << indent_str << "[Program] Elements:\n" << std::flush;
@@ -1673,7 +1731,7 @@ namespace compiler {
 				if constexpr (std::is_same_v<T0, ast_statement_function_declaration>) {
 					node.print(indent + 1);
 				}
-				else if constexpr (std::is_same_v<T0, ast_type_struct>) {
+				else if constexpr (std::is_same_v<T0, ast_statement_struct_declaration>) {
 					node.print(indent + 1);
 				}
 			}, elem);
