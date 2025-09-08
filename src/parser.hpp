@@ -22,11 +22,15 @@ public:
 	using ParseFunction = std::function<void(const std::vector<T>&, std::vector<std::pair<U, size_t>>&, ParserTable&)>;
 
 	std::string m_name;
+	std::string m_original_name;
 
 	ParseFunction m_parse_func;
 
 	explicit Parser(ParseFunction parse_func, std::string name = "?")
-		: m_name(std::move(name)), m_parse_func(std::move(parse_func)) {
+		: m_name(std::move(name)), m_original_name(m_name), m_parse_func(std::move(parse_func)) {
+	}
+	Parser(ParseFunction parse_func, std::string name, std::string original_name)
+		: m_name(std::move(name)), m_original_name(std::move(original_name)), m_parse_func(std::move(parse_func)) {
 	}
 
 	void parse(const std::vector<T>& input, std::vector<std::pair<U, size_t>>& output, ParserTable& table) const {
@@ -356,6 +360,10 @@ public:
 	Parser<T, std::vector<U>> operator/(const Parser<T, V> other) const {
 		return this->separated_by(other, false);
 	}
+
+	Parser<T, U> rename(std::string name) const {
+		return Parser<T, U>(m_parse_func, name, m_name);
+	}
 };
 
 template<typename T, typename U>
@@ -532,8 +540,8 @@ inline Parser<char, std::vector<char>> token(std::string tok, bool ignore_case =
 	return token(std::vector<char>(tok.begin(), tok.end()), try_infer_name(tok), ignore_case);
 }
 template<typename T>
-Parser<T, std::vector<T>> tokens(std::vector<std::vector<T>> toks, std::string name) {
-	auto tokens_parse_func = [toks, name
+Parser<T, std::vector<T>> tokens(std::vector<std::vector<T>> toks, std::string name, bool first_only = false) {
+	auto tokens_parse_func = [toks, name, first_only
 		](const std::vector<T>& input, std::vector<std::pair<std::vector<T>, size_t>>& output, ParserTable&) {
 		if constexpr (Parser<T, std::vector<T>>::DO_DEBUG) {
 			std::cout << "Entering parser: (tokens \"" << name << "\") on input: ";
@@ -542,13 +550,16 @@ Parser<T, std::vector<T>> tokens(std::vector<std::vector<T>> toks, std::string n
 		for (const auto& tok : toks) {
 			if (input.size() >= tok.size() && std::equal(tok.begin(), tok.end(), input.begin())) {
 				output.emplace_back(tok, tok.size());
+				if (first_only) {
+					break;
+				}
 			}
 		}
 	};
 	return Parser<T, std::vector<T>>(tokens_parse_func, std::format("(tokens \"{}\")", name));
 }
-inline Parser<char, std::vector<char>> tokens(std::vector<std::vector<char>> toks, std::string name, bool ignore_case) {
-	auto tokens_parse_func = [toks, ignore_case](const std::vector<char>& input,
+inline Parser<char, std::vector<char>> tokens(std::vector<std::vector<char>> toks, std::string name, bool ignore_case, bool first_only = false) {
+	auto tokens_parse_func = [toks, ignore_case, first_only](const std::vector<char>& input,
 		std::vector<std::pair<std::vector<char>, size_t>>& output, ParserTable&) {
 		for (const auto& tok : toks) {
 			if (input.size() >= tok.size()) {
@@ -563,11 +574,17 @@ inline Parser<char, std::vector<char>> tokens(std::vector<std::vector<char>> tok
 					}
 					if (match) {
 						output.emplace_back(std::vector<char>(input.begin(), input.begin() + tok.size()), tok.size());
+						if (first_only) {
+							break;
+						}
 					}
 				}
 				else {
 					if (std::equal(tok.begin(), tok.end(), input.begin())) {
 						output.emplace_back(std::vector<char>(input.begin(), input.begin() + tok.size()), tok.size());
+						if (first_only) {
+							break;
+						}
 					}
 				}
 			}
@@ -576,12 +593,12 @@ inline Parser<char, std::vector<char>> tokens(std::vector<std::vector<char>> tok
 	return Parser<char, std::vector<char>>(tokens_parse_func, std::format("(tokens \"{}\")", name));
 }
 inline Parser<char, std::vector<char>>
-tokens(std::vector<std::string> toks, std::string name, bool ignore_case = false) {
+tokens(std::vector<std::string> toks, std::string name, bool ignore_case = false, bool first_only = false) {
 	std::vector<std::vector<char>> char_toks;
 	for (const auto& tok : toks) {
 		char_toks.emplace_back(tok.begin(), tok.end());
 	}
-	return tokens(char_toks, name, ignore_case);
+	return tokens(char_toks, name, ignore_case, first_only);
 }
 
 inline Parser<char, char> symbol_range(char start, char end, std::string name = "?") {
@@ -627,16 +644,6 @@ Parser<T, U> parse_eof(U value) {
 		}
 	};
 	return Parser<T, U>(eof_parse_func, "(eof)");
-}
-
-template<typename T>
-auto flatten(T&& value) {
-	return std::make_tuple(std::forward<T>(value));
-}
-
-template<typename T, typename U>
-auto flatten(const std::pair<T, U>& p) {
-	return std::tuple_cat(flatten(p.first), flatten(p.second));
 }
 
 inline std::vector<char> operator""_t(const char* str, size_t len) {

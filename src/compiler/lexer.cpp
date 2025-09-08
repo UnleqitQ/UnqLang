@@ -3,6 +3,50 @@
 #include "../parser.hpp"
 
 namespace compiler {
+	operator_type_t lexer_parse_operator_type(const std::string& op_str) {
+		if (op_str == "+") return operator_type_t::Plus;
+		if (op_str == "-") return operator_type_t::Minus;
+		if (op_str == "*") return operator_type_t::Asterisk;
+		if (op_str == "/") return operator_type_t::Slash;
+		if (op_str == "%") return operator_type_t::Percent;
+		if (op_str == "!") return operator_type_t::Exclamation;
+		if (op_str == "?") return operator_type_t::Question;
+		if (op_str == "->") return operator_type_t::Arrow;
+		if (op_str == "<") return operator_type_t::LessThan;
+		if (op_str == ">") return operator_type_t::GreaterThan;
+		if (op_str == "<<") return operator_type_t::ShiftLeft;
+		if (op_str == ">>") return operator_type_t::ShiftRight;
+		if (op_str == "&") return operator_type_t::Ampersand;
+		if (op_str == "|") return operator_type_t::Pipe;
+		if (op_str == "^") return operator_type_t::Caret;
+		if (op_str == "~") return operator_type_t::Tilde;
+		if (op_str == "++") return operator_type_t::PlusPlus;
+		if (op_str == "--") return operator_type_t::MinusMinus;
+		if (op_str == "==") return operator_type_t::EqualEqual;
+		if (op_str == "!=") return operator_type_t::NotEqual;
+		if (op_str == "<=") return operator_type_t::LessEqual;
+		if (op_str == ">=") return operator_type_t::GreaterEqual;
+		if (op_str == "&&") return operator_type_t::LogicalAnd;
+		if (op_str == "||") return operator_type_t::LogicalOr;
+		if (op_str == "=") return operator_type_t::Equal;
+		return operator_type_t::Unknown;
+	}
+	punctuation_type_t lexer_parse_punctuation_type(char punc) {
+		switch (punc) {
+			case '(': return punctuation_type_t::LeftParen;
+			case ')': return punctuation_type_t::RightParen;
+			case '{': return punctuation_type_t::LeftBrace;
+			case '}': return punctuation_type_t::RightBrace;
+			case '[': return punctuation_type_t::LeftBracket;
+			case ']': return punctuation_type_t::RightBracket;
+			case ';': return punctuation_type_t::Semicolon;
+			case ',': return punctuation_type_t::Comma;
+			case '.': return punctuation_type_t::Dot;
+			case ':': return punctuation_type_t::Colon;
+			default: return punctuation_type_t::Unknown;
+		}
+	}
+
 	const Parser<char, lexer_token> sl_comment_lexer = (token("//") > *(satisfy<char>([](char c) { return c != '\n'; },
 			"not-newline")) < (symbol('\n') || parse_eof<char, char>('\0')))
 		.map<lexer_token>([](const std::vector<char>& comment_chars) {
@@ -70,21 +114,6 @@ namespace compiler {
 			id_str.append(p.second.begin(), p.second.end());
 			return lexer_token{lexer_token::type_t::Identifier, id_str};
 		}, "identifier");
-	auto t = (symbol('"') >
-			*(
-				(symbol('\\') + satisfy<char>([](char c) { return true; }, "any")).map<char>(
-					[](const std::pair<char, char>& p) {
-						switch (p.second) {
-							case 'n': return '\n';
-							case 'r': return '\r';
-							case 't': return '\t';
-							case '\\': return '\\';
-							case '"': return '"';
-							default: return p.second; // Unknown escape, just return the char itself
-						}
-					}, "escape") ||
-				satisfy<char>([](char c) { return c != '"'; }, "non-quote")
-			) < symbol('"'));
 	const Parser<char, lexer_token> string_lexer = (symbol('"') >
 			*(
 				(symbol('\\') + satisfy<char>([](char c) { return true; }, "any")).map<char>(
@@ -104,22 +133,41 @@ namespace compiler {
 			std::string str(p.begin(), p.end());
 			return lexer_token{lexer_token::type_t::String, str};
 		}, "string");
-	const Parser<char, lexer_token> operator_lexer = tokens(std::vector<std::string>{
-			"++", "--", "==", "!=", "<=", ">=", "&&", "||", "+", "-", "*", "/", "%", "=", "<", ">", "!", "&", "|", "^", "~"
-		}, "operators")
+	std::vector<std::string> operator_strings = {
+		"++", "--", "==", "!=", "<<", ">>", "<=", ">=", "&&", "||", "+", "-", "*", "/", "%", "=", "<", ">", "!", "&", "|",
+		"^", "~"
+	};
+	const Parser<char, lexer_token> operator_lexer = tokens(operator_strings, "operators", false, true)
 		.map<lexer_token>([](const std::vector<char>& op) {
 			std::string op_str(op.begin(), op.end());
-			return lexer_token{lexer_token::type_t::Operator, op_str[0]}; // Just take the first char for simplicity
+			return lexer_token{lexer_token::type_t::Operator, lexer_parse_operator_type(op_str)};
 		}, "operator");
-	const Parser<char, lexer_token> punctuation_lexer = symbols(std::vector<char>{
-			'(', ')', '{', '}', '[', ']', ';', ',', '.', ':'
-		}, "punctuation")
+	std::vector<char> punctuation_chars = {
+		'(', ')', '{', '}', '[', ']', ';', ',', '.', ':'
+	};
+	const Parser<char, lexer_token> punctuation_lexer = symbols(punctuation_chars, "punctuation")
 		.map<lexer_token>([](char punc) {
-			return lexer_token{lexer_token::type_t::Punctuation, punc};
+			return lexer_token{lexer_token::type_t::Punctuation, lexer_parse_punctuation_type(punc)};
 		}, "punctuation");
-	const Parser<char, lexer_token> keyword_lexer = tokens(std::vector<std::string>{
-			"if", "else", "while", "for", "return", "int", "void"
-		}, "keywords")
+	std::vector<std::string> keyword_strings = {
+		"if",
+		"else",
+		"while",
+		"for",
+		"return",
+		"int",
+		// "float",
+		// "char",
+		"bool",
+		"void",
+		"struct",
+		"break",
+		"continue",
+		"sizeof",
+		"true",
+		"false"
+	};
+	const Parser<char, lexer_token> keyword_lexer = tokens(keyword_strings, "keywords", false, true)
 		.map<lexer_token>([](const std::vector<char>& kw) {
 			std::string kw_str(kw.begin(), kw.end());
 			return lexer_token{lexer_token::type_t::Keyword, kw_str};
@@ -173,10 +221,10 @@ namespace compiler {
 				os << "String, Value: \"" << std::get<std::string>(tok.value) << "\"";
 				break;
 			case lexer_token::type_t::Operator:
-				os << "Operator, Value: '" << std::get<char>(tok.value) << "'";
+				os << "Operator, Value: '" << std::get<operator_type_t>(tok.value) << "'";
 				break;
 			case lexer_token::type_t::Punctuation:
-				os << "Punctuation, Value: '" << std::get<char>(tok.value) << "'";
+				os << "Punctuation, Value: '" << std::get<punctuation_type_t>(tok.value) << "'";
 				break;
 			case lexer_token::type_t::Keyword:
 				os << "Keyword, Value: " << std::get<std::string>(tok.value);
