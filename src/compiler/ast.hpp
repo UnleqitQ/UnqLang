@@ -37,7 +37,7 @@ namespace compiler {
 			Void,
 			Int,
 			// Float,
-			// Char,
+			Char,
 			Bool,
 			Pointer,
 			Array,

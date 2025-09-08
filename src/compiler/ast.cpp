@@ -169,7 +169,7 @@ namespace compiler {
 						}
 						case lexer_token::type_t::Keyword: {
 							const auto kw = std::get<std::string>(tok.value);
-							if (kw == "int" || kw == "void" || kw == "bool") {
+							if (kw == "int" || kw == "void" || kw == "bool" || kw == "char") {
 								return (sym = ast_type_symbol_t::Builtin, true);
 							}
 							return false;
@@ -214,6 +214,9 @@ namespace compiler {
 					}
 					else if (kw == "bool") {
 						return ast_type_node(ast_type_node::type_t::Bool, std::monostate{});
+					}
+					else if (kw == "char") {
+						return ast_type_node(ast_type_node::type_t::Char, std::monostate{});
 					}
 					throw std::runtime_error("Unknown builtin type keyword: " + kw);
 				}

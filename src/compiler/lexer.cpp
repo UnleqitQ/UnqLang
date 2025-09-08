@@ -157,7 +157,7 @@ namespace compiler {
 		"return",
 		"int",
 		// "float",
-		// "char",
+		"char",
 		"bool",
 		"void",
 		"struct",

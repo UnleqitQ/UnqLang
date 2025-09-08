@@ -13,4 +13,6 @@ add_executable(MiscMachine
 	src/compiler/lexer.hpp
 	src/compiler/ast.cpp
 	src/compiler/ast.hpp
+	src/compiler/compiler.cpp
+	src/compiler/compiler.hpp
 )
