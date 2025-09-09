@@ -4,6 +4,7 @@
 #include <vector>
 #include <variant>
 #include <memory>
+
 #include "lexer.hpp"
 
 namespace compiler {
@@ -58,22 +59,115 @@ namespace compiler {
 		ast_type_node(type_t t, auto&& v) : type(t), value(std::forward<decltype(v)>(v)) {
 		}
 
-		friend std::ostream& operator<<(std::ostream& os, const ast_type_node& node);
+		friend std::ostream& operator<<(std::ostream& stream, const ast_type_node& n);
 		void print(int indent = 0) const;
+
+		bool operator==(const ast_type_node& other) const {
+			if (type != other.type) {
+				return false;
+			}
+			switch (type) {
+				case type_t::Void:
+				case type_t::Int:
+				case type_t::Char:
+				case type_t::Bool:
+					return true; // No additional data to compare
+				case type_t::Pointer: {
+					const auto& p1 = std::get<ast_type_pointer>(value);
+					const auto& p2 = std::get<ast_type_pointer>(other.value);
+					return *p1.base == *p2.base;
+				}
+				case type_t::Array: {
+					const auto& a1 = std::get<ast_type_array>(value);
+					const auto& a2 = std::get<ast_type_array>(other.value);
+					return a1.size == a2.size && *a1.base == *a2.base;
+				}
+				case type_t::Function: {
+					const auto& f1 = std::get<ast_type_function>(value);
+					const auto& f2 = std::get<ast_type_function>(other.value);
+					if (*f1.return_type != *f2.return_type || f1.parameters.size() != f2.parameters.size()) {
+						return false;
+					}
+					for (size_t i = 0; i < f1.parameters.size(); ++i) {
+						if (*f1.parameters[i] != *f2.parameters[i]) {
+							return false;
+						}
+					}
+					return true;
+				}
+				case type_t::Struct: {
+					const auto& s1 = std::get<ast_type_members>(value);
+					const auto& s2 = std::get<ast_type_members>(other.value);
+					if (s1.members.size() != s2.members.size()) {
+						return false;
+					}
+					for (size_t i = 0; i < s1.members.size(); ++i) {
+						if (s1.members[i].name != s2.members[i].name ||
+							*s1.members[i].type != *s2.members[i].type) {
+							return false;
+						}
+					}
+					return true;
+				}
+				case type_t::Custom: {
+					const auto& name1 = std::get<std::string>(value);
+					const auto& name2 = std::get<std::string>(other.value);
+					return name1 == name2;
+				}
+			}
+			return false; // Should not reach here
+		}
+		bool operator!=(const ast_type_node& other) const {
+			return !(*this == other);
+		}
 	};
 
-	// main AST
-	struct ast_node;
+	// expression AST
+	struct ast_expression_node;
+	struct ast_expression_literal {
+		enum class type_t {
+			Integer,
+			// Float,
+			String,
+			Char,
+			Boolean,
+			Null,
+		} type;
+		std::variant<
+			int, // Integer
+			// double, // Float
+			std::string, // String
+			char, // Char
+			bool, // Boolean
+			std::monostate // Null
+		> value;
+		ast_expression_literal() : type(type_t::Null), value(std::monostate{}) {
+		}
+		ast_expression_literal(type_t t, auto&& v) : type(t), value(std::forward<decltype(v)>(v)) {
+		}
+
+		bool operator==(const ast_expression_literal& other) const {
+			if (type != other.type) {
+				return false;
+			}
+			return value == other.value;
+		}
+		bool operator!=(const ast_expression_literal& other) const {
+			return !(*this == other);
+		}
+
+		void print(int indent = 0) const;
+	};
 	struct ast_member_access {
-		std::shared_ptr<ast_node> object;
+		std::shared_ptr<ast_expression_node> object;
 		std::string property;
 		bool pointer; // true if '->', false if '.'
 		void print(int indent = 0) const;
 	};
 	struct ast_expression_ternary {
-		std::shared_ptr<ast_node> condition;
-		std::shared_ptr<ast_node> then_branch;
-		std::shared_ptr<ast_node> else_branch;
+		std::shared_ptr<ast_expression_node> condition;
+		std::shared_ptr<ast_expression_node> then;
+		std::shared_ptr<ast_expression_node> otherwise;
 		void print(int indent = 0) const;
 	};
 	struct ast_expression_binary {
@@ -100,8 +194,8 @@ namespace compiler {
 			ArraySubscript,
 			Comma,
 		} type;
-		std::shared_ptr<ast_node> left;
-		std::shared_ptr<ast_node> right;
+		std::shared_ptr<ast_expression_node> left;
+		std::shared_ptr<ast_expression_node> right;
 		void print(int indent = 0) const;
 	};
 	inline std::ostream& operator<<(std::ostream& os, const ast_expression_binary::type_t& type) {
@@ -164,7 +258,7 @@ namespace compiler {
 			AddressOf, // &
 			SizeOf, // sizeof
 		} type;
-		std::shared_ptr<ast_node> operand;
+		std::shared_ptr<ast_expression_node> operand;
 		void print(int indent = 0) const;
 	};
 	inline std::ostream& operator<<(std::ostream& os, const ast_expression_unary::type_t& type) {
@@ -195,21 +289,78 @@ namespace compiler {
 		return os;
 	}
 	struct ast_expression_call {
-		std::shared_ptr<ast_node> callee;
-		std::vector<std::shared_ptr<ast_node>> arguments;
+		std::shared_ptr<ast_expression_node> callee;
+		std::vector<std::shared_ptr<ast_expression_node>> arguments;
 		void print(int indent = 0) const;
 	};
-	struct ast_statement_variable_declaration {
-		std::string name;
-		std::shared_ptr<ast_type_node> var_type; // For now must be specified
-		std::shared_ptr<ast_node> initializer; // Can be null
+
+	struct ast_expression_node {
+		enum class type_t {
+			Literal,
+			Identifier,
+			MemberAccess,
+			Ternary,
+			Unary,
+			Binary,
+			FunctionCall,
+
+			Unknown,
+		} type;
+		std::variant<
+			ast_expression_literal, // Literal
+			std::string, // Identifier
+			ast_expression_binary, // Binary
+			ast_expression_unary, // Unary
+			ast_member_access, // MemberAccess
+			ast_expression_ternary, // Ternary
+			ast_expression_call, // FunctionCall
+			std::monostate // Unknown
+		> value;
+		ast_expression_node() : type(type_t::Unknown), value(std::monostate{}) {
+		}
+		ast_expression_node(type_t t, auto&& v) : type(t), value(std::forward<decltype(v)>(v)) {
+		}
+
+		void print(int indent = 0) const;
+	};
+
+	// statement AST
+	struct ast_statement_node;
+
+	struct ast_statement_if {
+		std::shared_ptr<ast_expression_node> condition;
+		std::shared_ptr<ast_statement_node> then_branch;
+		std::shared_ptr<ast_statement_node> else_branch; // Can be null
+		void print(int indent = 0) const;
+	};
+	struct ast_statement_while {
+		std::shared_ptr<ast_expression_node> condition;
+		std::shared_ptr<ast_statement_node> body;
+		void print(int indent = 0) const;
+	};
+	struct ast_statement_return {
+		std::shared_ptr<ast_expression_node> value; // Can be null
+		void print(int indent = 0) const;
+	};
+	struct ast_statement_expression {
+		std::shared_ptr<ast_expression_node> expression;
+		void print(int indent = 0) const;
+	};
+	struct ast_statement_block {
+		std::vector<std::shared_ptr<ast_statement_node>> statements;
 		void print(int indent = 0) const;
 	};
 	struct ast_statement_function_declaration {
 		std::string name;
 		std::vector<std::pair<std::string, std::shared_ptr<ast_type_node>>> parameters; // (name, type)
 		std::shared_ptr<ast_type_node> return_type; // For now must be specified
-		std::shared_ptr<ast_node> body; // Must be a BlockStatement
+		ast_statement_block body;
+		void print(int indent = 0) const;
+	};
+	struct ast_statement_variable_declaration {
+		std::string name;
+		std::shared_ptr<ast_type_node> var_type; // For now must be specified
+		std::shared_ptr<ast_expression_node> initializer; // Can be null
 		void print(int indent = 0) const;
 	};
 	struct ast_statement_struct_declaration {
@@ -217,63 +368,21 @@ namespace compiler {
 		ast_type_members body;
 		void print(int indent = 0) const;
 	};
-	struct ast_statement_if {
-		std::shared_ptr<ast_node> condition;
-		std::shared_ptr<ast_node> then_branch;
-		std::shared_ptr<ast_node> else_branch; // Can be null
-		void print(int indent = 0) const;
-	};
-	struct ast_statement_while {
-		std::shared_ptr<ast_node> condition;
-		std::shared_ptr<ast_node> body;
-		void print(int indent = 0) const;
-	};
-	struct ast_statement_return {
-		std::shared_ptr<ast_node> value; // Can be null
-		void print(int indent = 0) const;
-	};
-	struct ast_statement_expression {
-		std::shared_ptr<ast_node> expression;
-		void print(int indent = 0) const;
-	};
-	struct ast_statement_block {
-		std::vector<std::shared_ptr<ast_node>> statements;
-		void print(int indent = 0) const;
-	};
 
-	struct ast_node {
+	struct ast_statement_node {
 		enum class type_t {
-			IntegerLiteral,
-			// FloatLiteral,
-			// StringLiteral,
-			Identifier,
-			MemberAccess,
-			TernaryExpression,
-			UnaryExpression,
-			BinaryExpression,
-			FunctionCall,
+			VariableDeclaration,
+			FunctionDeclaration,
+			StructDeclaration,
 			IfStatement,
 			WhileStatement,
-			// ForStatement,
 			ReturnStatement,
 			ExpressionStatement,
 			BlockStatement,
 
-			VariableDeclaration,
-			FunctionDeclaration,
-			StructDeclaration,
-
 			Unknown,
 		} type;
 		std::variant<
-			int, // IntegerLiteral
-			// double, // FloatLiteral
-			std::string, // (StringLiteral), Identifier
-			ast_expression_binary, // BinaryExpression
-			ast_expression_unary, // UnaryExpression
-			ast_member_access, // MemberAccess
-			ast_expression_ternary, // TernaryExpression
-			ast_expression_call, // FunctionCall
 			ast_statement_if, // IfStatement
 			ast_statement_while, // WhileStatement
 			ast_statement_return, // ReturnStatement
@@ -286,12 +395,11 @@ namespace compiler {
 
 			std::monostate // Unknown
 		> value;
-		ast_node() : type(type_t::Unknown), value(std::monostate{}) {
+		ast_statement_node() : type(type_t::Unknown), value(std::monostate{}) {
 		}
-		ast_node(type_t t, auto&& v) : type(t), value(std::forward<decltype(v)>(v)) {
+		ast_statement_node(type_t t, auto&& v) : type(t), value(std::forward<decltype(v)>(v)) {
 		}
 
-		friend std::ostream& operator<<(std::ostream& os, const ast_node& node);
 		void print(int indent = 0) const;
 	};
 
@@ -307,12 +415,37 @@ namespace compiler {
 		explicit ast_program(std::vector<program_element_t> elements) : body(std::move(elements)) {
 		}
 
-		friend std::ostream& operator<<(std::ostream& os, const ast_program& program);
-
 		void print(int indent = 0) const;
 	};
 
 	std::shared_ptr<ast_type_node> parse_ast_type(const std::vector<lexer_token>& tokens);
-	std::shared_ptr<ast_node> parse_ast(const std::vector<lexer_token>& tokens);
+	std::shared_ptr<ast_expression_node> parse_ast_expression(const std::vector<lexer_token>& tokens);
+	std::shared_ptr<ast_statement_node> parse_ast_statement(const std::vector<lexer_token>& tokens);
 	ast_program parse_ast_program(const std::vector<lexer_token>& tokens);
 } // compiler
+
+template <>
+struct std::hash<compiler::ast_expression_literal> {
+	size_t operator()(const compiler::ast_expression_literal& lit) const noexcept {
+		size_t h1 = std::hash<int>()(static_cast<int>(lit.type));
+		size_t h2 = 0;
+		switch (lit.type) {
+			case compiler::ast_expression_literal::type_t::Integer:
+				h2 = std::hash<int>()(std::get<int>(lit.value));
+				break;
+			case compiler::ast_expression_literal::type_t::String:
+				h2 = std::hash<std::string>()(std::get<std::string>(lit.value));
+				break;
+			case compiler::ast_expression_literal::type_t::Char:
+				h2 = std::hash<char>()(std::get<char>(lit.value));
+				break;
+			case compiler::ast_expression_literal::type_t::Boolean:
+				h2 = std::hash<bool>()(std::get<bool>(lit.value));
+				break;
+			case compiler::ast_expression_literal::type_t::Null:
+				h2 = 0; // No additional data
+				break;
+		}
+		return h1 ^ (h2 << 1); // Combine hashes
+	}
+};

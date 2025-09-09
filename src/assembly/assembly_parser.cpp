@@ -752,10 +752,10 @@ namespace assembly {
 			assembly_parse_component::type::NEWLINE);
 		const Parser<assembly_parse_component, assembly_component> instruction_or_label_parser =
 		(instruction_parser.map<assembly_component>([](const assembly_instruction& instr) {
-				return assembly_component{assembly_component::type::INSTRUCTION, instr};
+				return assembly_component{instr};
 			}, "to_component")
 			|| label_parser.map<assembly_component>([](const std::string& label) {
-				return assembly_component{assembly_component::type::LABEL, label};
+				return assembly_component{label};
 			}, "to_component"));
 		const Parser<assembly_parse_component, std::vector<assembly_component>> instructions_parser =
 			(*newline_parser > instruction_or_label_parser + *(newline_parser > instruction_or_label_parser) < *

@@ -184,7 +184,7 @@ namespace compiler {
 		keyword_lexer ||
 		identifier_lexer ||
 		integer_lexer ||
-		// string_lexer ||
+		string_lexer ||
 		operator_lexer ||
 		punctuation_lexer;
 	const Parser<char, std::vector<lexer_token>> lexer_parser = *(whitespace_lexer > any_lexer);

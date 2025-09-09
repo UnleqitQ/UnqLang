@@ -185,6 +185,27 @@ namespace assembly {
 			args_t<0, false> // Nullary without result
 		> args;
 
+		assembly_instruction(machine::operation operation, assembly_result result, assembly_operand op1)
+			: op(operation), args(args_t<1, true>{{op1}, result}) {
+		}
+		assembly_instruction(machine::operation operation, assembly_operand op1)
+			: op(operation), args(args_t<1, false>{{op1}}) {
+		}
+		assembly_instruction(machine::operation operation, assembly_operand op1, assembly_operand op2)
+			: op(operation), args(args_t<2, false>{{op1, op2}}) {
+		}
+		assembly_instruction(machine::operation operation, assembly_result result)
+			: op(operation), args(args_t<0, true>{{}, result}) {
+		}
+		explicit assembly_instruction(machine::operation operation)
+			: op(operation), args(args_t<0, false>{{}}) {
+		}
+
+		template<size_t N, bool HasResult>
+		assembly_instruction(machine::operation operation, const args_t<N, HasResult>& arguments)
+			: op(operation), args(arguments) {
+		}
+
 		friend std::ostream& operator<<(std::ostream& os, const assembly_instruction& inst) {
 			os << inst.op;
 			os << " ";
@@ -198,6 +219,14 @@ namespace assembly {
 			INSTRUCTION
 		} component_type;
 		std::variant<std::string, assembly_instruction> value;
+
+		assembly_component(const std::string& label)
+			: component_type(type::LABEL), value(label) {
+		}
+		assembly_component(const assembly_instruction& inst)
+			: component_type(type::INSTRUCTION), value(inst) {
+		}
+
 		friend std::ostream& operator<<(std::ostream& os, const assembly_component& comp) {
 			switch (comp.component_type) {
 				case type::LABEL:
@@ -210,9 +239,11 @@ namespace assembly {
 			return os;
 		}
 	};
-  typedef std::vector<assembly_component> assembly_program_t;
+	typedef std::vector<assembly_component> assembly_program_t;
 
-	machine::instruction_t assemble_instruction(const assembly_instruction& inst, const std::unordered_map<std::string, uint32_t>& label_map);
-	void retrieve_labels(const assembly_program_t& assembly_program, std::unordered_map<std::string, uint32_t>& label_map, uint32_t start_address = 0);
+	machine::instruction_t assemble_instruction(const assembly_instruction& inst,
+		const std::unordered_map<std::string, uint32_t>& label_map);
+	void retrieve_labels(const assembly_program_t& assembly_program, std::unordered_map<std::string, uint32_t>& label_map,
+		uint32_t start_address = 0);
 	machine::program_t assemble(const assembly_program_t& assembly_program, uint32_t start_address = 0);
 } // assembly

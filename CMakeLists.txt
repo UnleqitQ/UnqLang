@@ -15,4 +15,7 @@ add_executable(MiscMachine
 	src/compiler/ast.hpp
 	src/compiler/compiler.cpp
 	src/compiler/compiler.hpp
+	src/compiler/ast_interpreter.cpp
+	src/compiler/ast_interpreter.hpp
+	src/compiler/ast_helpers.cpp
 )
