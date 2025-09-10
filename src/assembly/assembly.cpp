@@ -108,6 +108,13 @@ namespace assembly {
 		}
 		throw std::runtime_error("Unknown memory type");
 	}
+	machine::memory_pointer_operand assemble_memory_pointer(const assembly_memory_pointer& mem,
+		const std::unordered_map<std::string, uint32_t>& label_map) {
+		const auto size = mem.size;
+		const auto base = mem.mem;
+		const auto assembled_mem = assemble_memory(base, label_map);
+		return machine::memory_pointer_operand(size, assembled_mem);
+	}
 	machine::result_arg assemble_result(const assembly_result& res,
 		const std::unordered_map<std::string, uint32_t>& label_map) {
 		switch (res.result_type) {
@@ -117,7 +124,7 @@ namespace assembly {
 			}
 			case assembly_result::type::MEMORY_POINTER: {
 				const auto mem = std::get<assembly_memory_pointer>(res.value);
-				return machine::result_arg{machine::result_arg::type_t::MEMORY, {.mem = assemble_memory(mem, label_map)}};
+				return machine::result_arg{machine::result_arg::type_t::MEMORY, {.mem = assemble_memory_pointer(mem, label_map)}};
 			}
 		}
 		throw std::runtime_error("Unknown result type");
@@ -135,8 +142,8 @@ namespace assembly {
 				return machine::operand_arg{machine::operand_arg::type_t::IMMEDIATE, {.imm = static_cast<int32_t>(imm)}};
 			}
 			case assembly_operand::type::MEMORY_POINTER: {
-				const auto mem = std::get<assembly_memory>(op.value);
-				return machine::operand_arg{machine::operand_arg::type_t::MEMORY, {.mem = assemble_memory(mem, label_map)}};
+				const auto mem = std::get<assembly_memory_pointer>(op.value);
+				return machine::operand_arg{machine::operand_arg::type_t::MEMORY, {.mem = assemble_memory_pointer(mem, label_map)}};
 			}
 		}
 		throw std::runtime_error("Unknown operand type");
@@ -184,6 +191,14 @@ namespace assembly {
 			else if constexpr (std::is_same_v<T, assembly_instruction::args_t<0, false>>) {
 				// Nullary operation without result: no operands
 				result = machine::instruction_t(op, machine::args_t<0, false>{});
+			}
+			else if constexpr (std::is_same_v<T, assembly_instruction::args_mr_t>) {
+				const auto mem = a.mem;
+				const auto res = a.result;
+				result = machine::instruction_t(op, machine::args_t<1, true, machine::memory_operand>{
+					{assemble_memory(mem, label_map)},
+					assemble_result(res, label_map)
+				});
 			}
 			else {
 				throw std::runtime_error("Unhandled args type in assemble_instruction");
