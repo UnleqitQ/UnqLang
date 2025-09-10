@@ -3,11 +3,11 @@
 #include <typeinfo>
 #include <type_traits>
 
-#include "compiler/lexer.hpp"
-#include "compiler/ast.hpp"
-#include "compiler/ast_helpers.hpp"
-#include "compiler/ast_interpreter.hpp"
-#include "compiler/compiler.hpp"
+#include "unqlang/lexer.hpp"
+#include "unqlang/ast.hpp"
+#include "unqlang/ast_helpers.hpp"
+#include "unqlang/ast_interpreter.hpp"
+#include "unqlang/compiler.hpp"
 
 
 template<typename T>

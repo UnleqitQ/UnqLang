@@ -10,7 +10,7 @@
 #include <type_traits>
 
 #include "parser.hpp"
-#include "compiler/ast.hpp"
+#include "unqlang/ast.hpp"
 
 #define PRINT_CONTENT(input) for (const auto& c : input) { if constexpr (std::is_same_v<T, char>) { if (c == '\n') {std::cout << "[\\n]";}else if (c == '\r') {std::cout << "[\\r]";}else if (c == '\t') {std::cout << "[\\t]";}else {std::cout << c;}}else {std::cout << "[" << c << "]";}}std::cout << std::endl;std::cout << std::endl;
 
