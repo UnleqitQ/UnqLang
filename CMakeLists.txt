@@ -6,14 +6,16 @@ set(CMAKE_CXX_STANDARD 23)
 add_library(MiscMachineLib
 	src/assembly/assembly_parser.cpp
 	src/assembly/assembly.cpp
+	src/machine/assembler.cpp
+	src/machine/computer_split.cpp
+	src/machine/computer.cpp
+
 	src/unqlang/analysis/types.cpp
 	src/unqlang/ast_helpers.cpp
 	src/unqlang/ast_interpreter.cpp
 	src/unqlang/ast.cpp
+	src/unqlang/compiler/function.cpp
 	src/unqlang/lexer.cpp
-	src/machine/assembler.cpp
-	src/machine/computer_split.cpp
-	src/machine/computer.cpp
 )
 
 add_executable(MiscMachine
