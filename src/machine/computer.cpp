@@ -881,7 +881,10 @@ namespace machine {
 			case operation::OUT: {
 				const auto args = instr.args.args_1n;
 				uint32_t value = retrieve_operand_value(args.operands[0]);
-				std::cout << "OUT: " << value << std::endl;
+				if (m_verbose)
+					std::cout << std::format("OUT: 0x{:02X} ('{}')\n", value & 0xFF, static_cast<char>(value & 0xFF));
+				else
+					std::cout << static_cast<char>(value & 0xFF);
 				break;
 			}
 		}
