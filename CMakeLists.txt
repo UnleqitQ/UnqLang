@@ -10,7 +10,6 @@ add_library(MiscMachineLib
 	src/unqlang/ast_helpers.cpp
 	src/unqlang/ast_interpreter.cpp
 	src/unqlang/ast.cpp
-	src/unqlang/compiler.cpp
 	src/unqlang/lexer.cpp
 	src/machine/assembler.cpp
 	src/machine/computer_split.cpp
