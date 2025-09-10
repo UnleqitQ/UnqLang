@@ -496,7 +496,7 @@ namespace machine {
 			case operand_arg::type_t::IMMEDIATE:
 				return op.value.imm;
 			case operand_arg::type_t::MEMORY: {
-				uint32_t addr = retrieve_memory_address(op.value.mem);
+				uint32_t addr = retrieve_memory_address(op.value.mem.memory);
 				switch (op.value.mem.size) {
 					case data_size_t::BYTE:
 						return static_cast<int32_t>(m_ram.read8(addr));
@@ -517,7 +517,7 @@ namespace machine {
 			case result_arg::type_t::REGISTER:
 				return m_registers.get(res.value.reg);
 			case result_arg::type_t::MEMORY: {
-				uint32_t addr = retrieve_memory_address(res.value.mem);
+				uint32_t addr = retrieve_memory_address(res.value.mem.memory);
 				switch (res.value.mem.size) {
 					case data_size_t::BYTE:
 						return static_cast<int32_t>(m_ram.read8(addr));
@@ -539,7 +539,7 @@ namespace machine {
 				m_registers.set(res.value.reg, value);
 				break;
 			case result_arg::type_t::MEMORY: {
-				uint32_t addr = retrieve_memory_address(res.value.mem);
+				uint32_t addr = retrieve_memory_address(res.value.mem.memory);
 				switch (res.value.mem.size) {
 					case data_size_t::BYTE:
 						m_ram.write8(addr, static_cast<uint8_t>(value));
@@ -645,11 +645,8 @@ namespace machine {
 				break;
 			}
 			case operation::LEA: {
-				const auto args = instr.args.args_1r;
-				if (args.operands[0].type != operand_arg::type_t::MEMORY) {
-					throw std::runtime_error("LEA requires a memory operand");
-				}
-				uint32_t addr = retrieve_memory_address(args.operands[0].value.mem);
+				const auto args = instr.args.args_1r_mem;
+				uint32_t addr = retrieve_memory_address(args.operands[0]);
 				set_result_value(args.result, addr);
 				break;
 			}
