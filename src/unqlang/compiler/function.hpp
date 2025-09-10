@@ -2,6 +2,7 @@
 #include <vector>
 
 #include "common.hpp"
+#include "scope.hpp"
 #include "../../machine/register.hpp"
 #include "../analysis/types.hpp"
 
@@ -38,5 +39,17 @@ namespace unqlang::compiler {
 		regmask saved_registers;
 		// registers that are changed in this scope (but not saved/restored, e.g. caller-saved registers)
 		regmask changed_registers;
+	};
+
+	struct function_info {
+		function_signature signature;
+		scope function_scope; // scope for local variables
+		uint32_t stack_size; // size of local variables in this function
+	};
+
+	struct assembly_function_info {
+		assembly_function_signature signature;
+		assembly_scope function_scope; // scope for local variables
+		uint32_t stack_size; // size of local variables in this function
 	};
 } // unqlang::compiler
