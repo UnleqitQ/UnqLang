@@ -120,11 +120,11 @@ namespace assembly {
 		switch (res.result_type) {
 			case assembly_result::type::REGISTER: {
 				const auto reg = std::get<machine::register_t>(res.value);
-				return machine::result_arg{machine::result_arg::type_t::REGISTER, {.reg = reg}};
+				return machine::result_arg{reg};
 			}
 			case assembly_result::type::MEMORY_POINTER: {
 				const auto mem = std::get<assembly_memory_pointer>(res.value);
-				return machine::result_arg{machine::result_arg::type_t::MEMORY, {.mem = assemble_memory_pointer(mem, label_map)}};
+				return machine::result_arg{assemble_memory_pointer(mem, label_map)};
 			}
 		}
 		throw std::runtime_error("Unknown result type");

@@ -175,13 +175,27 @@ namespace machine {
 	struct result_arg {
 		enum class type_t : uint8_t {
 			REGISTER = 0,
-			MEMORY
+			MEMORY,
+			UNDEFINED = 255
 		} type;
 		union {
+			std::monostate none;
 			register_t reg;
 			memory_pointer_operand mem;
 		} value;
 
+		result_arg() : type(type_t::UNDEFINED), value{} {
+		}
+
+		explicit result_arg(register_t r)
+			: type(type_t::REGISTER), value{.reg = r} {
+		}
+		explicit result_arg(const memory_pointer_operand& m)
+			: type(type_t::MEMORY), value{.mem = m} {
+		}
+		explicit operator bool() const {
+			return type != type_t::UNDEFINED;
+		}
 		friend std::ostream& operator<<(std::ostream& os, const result_arg& res);
 	};
 	template<size_t N, bool R, typename O = operand_arg>

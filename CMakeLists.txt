@@ -15,4 +15,5 @@ add_executable(MiscMachine
 	src/compiler/ast_interpreter.cpp
 	src/compiler/ast_helpers.cpp
 	src/compiler/analysis/types.cpp
+	src/machine/assembler.cpp
 )

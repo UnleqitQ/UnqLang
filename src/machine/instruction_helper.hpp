@@ -7,10 +7,13 @@
 #include "instruction.hpp"
 
 namespace machine::instruction_helper {
-	struct operands_type {
-		uint8_t has_result : 1;
-		uint8_t num_operands : 2;
-		uint8_t reserved : 5;
+	union operands_type {
+		struct {
+			uint8_t has_result : 1;
+			uint8_t num_operands : 2;
+			uint8_t reserved : 5;
+		};
+		uint8_t raw;
 
 		static constexpr uint8_t NO_OPERANDS = 0;
 		static constexpr uint8_t ONE_OPERAND = 1;
