@@ -28,6 +28,7 @@ namespace assembly {
 			NEWLINE, // end of line
 			COMMENT, // e.g. ; this is a comment
 			END_OF_FILE, // end of input
+			PTR, // ptr
 			UNKNOWN // unrecognized token
 		} token_type;
 		std::string text;

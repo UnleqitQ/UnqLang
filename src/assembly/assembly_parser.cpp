@@ -39,6 +39,10 @@ namespace assembly {
 				[](const std::vector<char>& text) {
 					return assembly_token{assembly_token::type::DATA_SIZE, std::string(text.begin(), text.end())};
 				}, "to_token");
+		const Parser<char, assembly_token> ptr_parser =
+			token("ptr").map<assembly_token>([](const std::vector<char>& text) {
+				return assembly_token{assembly_token::type::PTR, std::string(text.begin(), text.end())};
+			}, "to_token");
 		const Parser<char, assembly_token> decimal_number_parser =
 			(+satisfy<char>([](char c) { return c >= '0' && c <= '9'; }, "is_dec")).map<assembly_token>(
 				[](const std::vector<char>& digits) {
@@ -111,8 +115,8 @@ namespace assembly {
 			!succeed<char, assembly_token>(assembly_token{assembly_token::type::END_OF_FILE, ""});
 
 		const Parser<char, assembly_token> assembly_token_parser =
-		(instruction_parser || register_parser || data_size_parser || number_parser || operator_parser || left_paren_parser
-			||
+		(instruction_parser || register_parser || data_size_parser || ptr_parser
+			|| number_parser || operator_parser || left_paren_parser ||
 			right_paren_parser || left_bracket_parser || right_bracket_parser || comma_parser || colon_parser ||
 			identifier_parser || comment_parser || space_parser || newline_parser);
 		const Parser<char, std::vector<assembly_token>> assembly_tokenization_parser =
@@ -210,6 +214,9 @@ namespace assembly {
 					break;
 				case assembly_token::type::END_OF_FILE:
 					type_name = "END_OF_FILE";
+					break;
+				case assembly_token::type::PTR:
+					type_name = "PTR";
 					break;
 				case assembly_token::type::UNKNOWN:
 					type_name = "UNKNOWN";
