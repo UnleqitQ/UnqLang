@@ -168,6 +168,9 @@ namespace machine {
 	struct memory_pointer_operand {
 		data_size_t size;
 		memory_operand memory;
+		memory_pointer_operand()
+			: size(data_size_t::DWORD), memory(0) {
+		}
 		memory_pointer_operand(data_size_t sz, const memory_operand& mem)
 			: size(sz), memory(mem) {
 		}

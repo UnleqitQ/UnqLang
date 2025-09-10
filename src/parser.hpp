@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <complex.h>
 #include <functional>
 #include <optional>
@@ -349,7 +350,9 @@ public:
 			}
 		};
 		// allow trailing: operator %, disallow trailing: operator /
-		std::string sep_name = allow_trailing ? std::format("{} % {}", m_name, separator.m_name) : std::format("{} / {}", m_name, separator.m_name);
+		std::string sep_name = allow_trailing
+			? std::format("{} % {}", m_name, separator.m_name)
+			: std::format("{} / {}", m_name, separator.m_name);
 		return Parser<T, std::vector<U>>(separated_by_parse_func, sep_name);
 	}
 	template<typename V>
@@ -558,7 +561,8 @@ Parser<T, std::vector<T>> tokens(std::vector<std::vector<T>> toks, std::string n
 	};
 	return Parser<T, std::vector<T>>(tokens_parse_func, std::format("(tokens \"{}\")", name));
 }
-inline Parser<char, std::vector<char>> tokens(std::vector<std::vector<char>> toks, std::string name, bool ignore_case, bool first_only = false) {
+inline Parser<char, std::vector<char>> tokens(std::vector<std::vector<char>> toks, std::string name, bool ignore_case,
+	bool first_only = false) {
 	auto tokens_parse_func = [toks, ignore_case, first_only](const std::vector<char>& input,
 		std::vector<std::pair<std::vector<char>, size_t>>& output, ParserTable&) {
 		for (const auto& tok : toks) {
@@ -592,8 +596,14 @@ inline Parser<char, std::vector<char>> tokens(std::vector<std::vector<char>> tok
 	};
 	return Parser<char, std::vector<char>>(tokens_parse_func, std::format("(tokens \"{}\")", name));
 }
-inline Parser<char, std::vector<char>>
-tokens(std::vector<std::string> toks, std::string name, bool ignore_case = false, bool first_only = false) {
+inline Parser<char, std::vector<char>> tokens(std::vector<std::string> toks, std::string name, bool ignore_case = false,
+	bool first_only = false) {
+	// Sort tokens by length descending to ensure longest match first
+	std::ranges::sort(toks,
+		[](const std::string& a, const std::string& b) {
+			return a.size() > b.size();
+		});
+	// Convert to vector<vector<char>>
 	std::vector<std::vector<char>> char_toks;
 	for (const auto& tok : toks) {
 		char_toks.emplace_back(tok.begin(), tok.end());

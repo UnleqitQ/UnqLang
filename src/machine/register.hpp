@@ -32,7 +32,7 @@ namespace machine {
 		high_byte = 3
 	};
 	struct register_t {
-		register_id id : 4;
+		register_id id : 5;
 		register_access access : 2;
 		constexpr explicit register_t(register_id id, register_access access = register_access::dword)
 			: id(id), access(access) {

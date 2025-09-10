@@ -886,7 +886,7 @@ namespace machine {
 			}
 		}
 		if (!jump_occurred) {
-			++m_registers.eip;
+			m_registers.eip = next_ip;
 		}
 	}
 

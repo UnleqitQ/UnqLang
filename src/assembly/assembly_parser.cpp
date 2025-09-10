@@ -4,36 +4,77 @@
 
 namespace assembly {
 	namespace lexer {
+		const std::vector<std::string> instructions = {
+			"nop", "mov", "push", "pop", "lea",
+			"add", "sub", "mul", "imul", "div", "idiv", "mod", "imod", "inc", "dec", "neg", "adc",
+			"sbb",
+			"cmp",
+			"and", "or", "xor", "not", "shl", "shr", "sar", "rol", "ror", "rcl", "rcr",
+			"test",
+			"jmp", "jz", "je", "jnz", "jne", "jc", "jnc", "jo", "jno", "jp", "jnp", "js", "jns",
+			"jg", "jl", "jge", "jle", "ja", "jae", "jb", "jbe",
+			"call", "ret",
+			"pusba", "popa", "pushf", "popf",
+			"clc", "stc", "hlt", "end",
+			"in", "out"
+		};
+		const std::vector<std::string> registers = {
+			"eax", "ax", "ah", "al",
+			"ebx", "bx", "bh", "bl",
+			"ecx", "cx", "ch", "cl",
+			"edx", "dx", "dh", "dl",
+			"esi", "si",
+			"edi", "di",
+			"esp", "sp",
+			"ebp", "bp",
+		};
+		bool is_separator(char c) {
+			return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' || c == ':' || c == '[' || c == ']' || c == '('
+				|| c == ')' || c == ';';
+		}
 		const Parser<char, assembly_token> instruction_parser =
-			tokens<char>({
-				"nop"_t, "mov"_t, "push"_t, "pop"_t, "lea"_t,
-				"add"_t, "sub"_t, "mul"_t, "imul"_t, "div"_t, "idiv"_t, "mod"_t, "imod"_t, "inc"_t, "dec"_t, "neg"_t, "adc"_t,
-				"sbb"_t,
-				"cmp"_t,
-				"and"_t, "or"_t, "xor"_t, "not"_t, "shl"_t, "shr"_t, "sar"_t, "rol"_t, "ror"_t, "rcl"_t, "rcr"_t,
-				"test"_t,
-				"jmp"_t, "jz"_t, "je"_t, "jnz"_t, "jne"_t, "jc"_t, "jnc"_t, "jo"_t, "jno"_t, "jp"_t, "jnp"_t, "js"_t, "jns"_t,
-				"jg"_t, "jl"_t, "jge"_t, "jle"_t, "ja"_t, "jae"_t, "jb"_t, "jbe"_t,
-				"call"_t, "ret"_t,
-				"pusba"_t, "popa"_t, "pushf"_t, "popf"_t,
-				"clc"_t, "stc"_t, "hlt"_t, "end"_t,
-				"in"_t, "out"_t
-			}, "inst").map<assembly_token>([](const std::vector<char>& text) {
-				return assembly_token{assembly_token::type::INSTRUCTION, std::string(text.begin(), text.end())};
-			}, "to_token");
+			Parser<char, assembly_token>([](const std::vector<char>& input,
+				std::vector<std::pair<assembly_token, size_t>>& output, ParserTable&) {
+					for (const auto& instr : instructions) {
+						if (input.size() >= instr.size()) {
+							bool match = true;
+							for (size_t i = 0; i < instr.size(); ++i) {
+								if (std::tolower(static_cast<unsigned char>(input[i])) != std::tolower(
+									static_cast<unsigned char>(instr[i]))) {
+									match = false;
+									break;
+								}
+							}
+							// Ensure the instruction is not part of a longer identifier
+							if (match && (input.size() == instr.size() || is_separator(input[instr.size()]))) {
+								output.emplace_back(assembly_token{assembly_token::type::INSTRUCTION, instr}, instr.size());
+								return;
+							}
+						}
+					}
+				}, "(instruction)");
+
 		const Parser<char, assembly_token> register_parser =
-			tokens<char>({
-				"eax"_t, "ax"_t, "ah"_t, "al"_t,
-				"ebx"_t, "bx"_t, "bh"_t, "bl"_t,
-				"ecx"_t, "cx"_t, "ch"_t, "cl"_t,
-				"edx"_t, "dx"_t, "dh"_t, "dl"_t,
-				"esi"_t, "si"_t,
-				"edi"_t, "di"_t,
-				"esp"_t, "sp"_t,
-				"ebp"_t, "bp"_t,
-			}, "reg").map<assembly_token>([](const std::vector<char>& text) {
-				return assembly_token{assembly_token::type::REGISTER, std::string(text.begin(), text.end())};
-			}, "to_token");
+			Parser<char, assembly_token>([](const std::vector<char>& input,
+				std::vector<std::pair<assembly_token, size_t>>& output, ParserTable&) {
+					for (const auto& reg : registers) {
+						if (input.size() >= reg.size()) {
+							bool match = true;
+							for (size_t i = 0; i < reg.size(); ++i) {
+								if (std::tolower(static_cast<unsigned char>(input[i])) != std::tolower(
+									static_cast<unsigned char>(reg[i]))) {
+									match = false;
+									break;
+								}
+							}
+							// Ensure the register is not part of a longer identifier
+							if (match && (input.size() == reg.size() || is_separator(input[reg.size()]))) {
+								output.emplace_back(assembly_token{assembly_token::type::REGISTER, reg}, reg.size());
+								return;
+							}
+						}
+					}
+				}, "(register)");
 		const Parser<char, assembly_token> data_size_parser =
 			tokens<char>({"dword"_t, "word"_t, "byte"_t}, "data_size")
 			.map<assembly_token>([](const std::vector<char>& text) {
@@ -56,19 +97,19 @@ namespace assembly {
 							return '\t';
 						case '\\':
 							return '\\';
-						case '"':
-							return '"';
+						case '\'':
+							return '\'';
 						default:
 							return c;
 					}
 				}, "escape_char");
 		const Parser<char, assembly_token> string_parser =
-			(symbol<char>('"') >
+			(symbol<char>('\'') >
 				*(
 					escape_char_parser ||
-					satisfy<char>([](char c) { return c != '"'; }, "not_quote")
+					satisfy<char>([](char c) { return c != '\''; }, "not_quote")
 				)
-				< symbol<char>('"'))
+				< symbol<char>('\''))
 			.map<assembly_token>([](const std::vector<char>& chars) {
 				return assembly_token{assembly_token::type::STRING, std::string(chars.begin(), chars.end())};
 			}, "to_token");
@@ -168,6 +209,14 @@ namespace assembly {
 		auto result = lexer::assembly_tokenization_parser.parse(chars, empty_table);
 		if (!result.empty()) {
 			if (result.size() > 1) {
+				size_t limit = std::min(result[0].first.size(), result[1].first.size());
+				for (size_t i = 0; i < limit; ++i) {
+					if (result[0].first[i] != result[1].first[i]) {
+						std::cerr << "  Difference at position " << i << ": '" << result[0].first[i] << "' vs '"
+							<< result[1].first[i] << "'" << std::endl;
+						break;
+					}
+				}
 				std::cerr << "Warning: Multiple parse results, using the first one." << std::endl;
 			}
 			return result[0].first;
@@ -460,7 +509,7 @@ namespace assembly {
 			}, "to_component");
 		const Parser<assembly_token, assembly_parse_component> string_parser =
 			is_token_type(assembly_token::type::STRING).map<assembly_parse_component>([](const assembly_token& tok) {
-				return assembly_parse_component{assembly_literal(tok.text)};
+				return assembly_parse_component{assembly_parse_component::type::STRING, tok.text};
 			}, "to_component");
 
 		const Parser<assembly_token, assembly_parse_component> assembly_component_parser =
@@ -735,7 +784,7 @@ namespace assembly {
 				}, "to_number")) ||
 			(is_component_type(assembly_parse_component::type::STRING).map<std::variant<uint32_t, std::string>>(
 				[](const assembly_parse_component& comp) {
-					return std::get<std::string>(std::get<assembly_literal>(comp.value).value);
+					return std::get<std::string>(comp.value);
 				}, "to_string"));
 		void convert_meta(const meta_type& meta, const std::vector<std::variant<uint32_t, std::string>>& data,
 			std::vector<uint8_t>& output) {
@@ -814,12 +863,15 @@ namespace assembly {
 		const Parser<assembly_parse_component, assembly_parse_component> newline_parser = is_component_type(
 			assembly_parse_component::type::NEWLINE);
 		const Parser<assembly_parse_component, assembly_component> line_parser =
-		(instruction_parser.map<assembly_component>([](const assembly_instruction& instr) {
+		(
+			instruction_parser.map<assembly_component>([](const assembly_instruction& instr) {
 				return assembly_component{instr};
 			}, "to_component")
 			|| label_parser.map<assembly_component>([](const std::string& label) {
 				return assembly_component{label};
-			}, "to_component"));
+			}, "to_component")
+			|| meta_parser
+		);
 		const Parser<assembly_parse_component, std::vector<assembly_component>> instructions_parser =
 			(*newline_parser > line_parser + *(newline_parser > line_parser) < *
 				newline_parser)
@@ -898,6 +950,15 @@ namespace assembly {
 				break;
 			case assembly_token::type::UNKNOWN:
 				os << "UNKNOWN(" << tok.text << ")";
+				break;
+			case assembly_token::type::STRING:
+				os << "STRING(" << tok.text << ")";
+				break;
+			case assembly_token::type::META:
+				os << "META(" << tok.text << ")";
+				break;
+			case assembly_token::type::PTR:
+				os << "PTR(" << tok.text << ")";
 				break;
 			default: break;
 		}
@@ -1026,6 +1087,24 @@ namespace assembly {
 				break;
 			case assembly_parse_component::type::UNKNOWN:
 				os << "UNKNOWN";
+				break;
+			case assembly_parse_component::type::STRING:
+				os << "STRING(" << std::get<std::string>(comp.value) << ")";
+				break;
+			case assembly_parse_component::type::META:
+				os << "META(";
+				switch (std::get<meta_type>(comp.value)) {
+					case meta_type::DB:
+						os << "DB";
+						break;
+					case meta_type::DW:
+						os << "DW";
+						break;
+					case meta_type::DD:
+						os << "DD";
+						break;
+				}
+				os << ")";
 				break;
 			default:
 				os << "INVALID_COMPONENT";

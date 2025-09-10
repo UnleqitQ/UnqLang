@@ -230,6 +230,19 @@ namespace assembly {
 					++address; // Each instruction is 1 address unit
 				}
 			}
+			else if (comp.component_type == assembly_component::type::RAW_DATA) {
+				if (byte_addressing) {
+					const auto& data = std::get<std::vector<uint8_t>>(comp.value);
+					address += static_cast<uint32_t>(data.size());
+				}
+				else {
+					const auto& data = std::get<std::vector<uint8_t>>(comp.value);
+					address += static_cast<uint32_t>((data.size() + 3) / 4); // Round up to nearest 4 bytes
+				}
+			}
+			else {
+				throw std::runtime_error("Unknown assembly component type");
+			}
 		}
 	}
 

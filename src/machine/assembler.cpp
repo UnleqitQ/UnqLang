@@ -191,6 +191,34 @@ namespace machine::assembler {
 			assemble_unsafe(instr, out);
 		}
 	}
+	void assemble(const machine::program_t& program, bytecode_t& out) {
+		for (const auto& instr : program) {
+			if (std::holds_alternative<machine::instruction_t>(instr)) {
+				assemble(std::get<machine::instruction_t>(instr), out);
+			}
+			else if (std::holds_alternative<std::vector<uint8_t>>(instr)) {
+				const auto& data = std::get<std::vector<uint8_t>>(instr);
+				out.insert(out.end(), data.begin(), data.end());
+			}
+			else {
+				// unknown component type, skip
+			}
+		}
+	}
+	void assemble_unsafe(const machine::program_t& program, bytecode_t& out) {
+		for (const auto& instr : program) {
+			if (std::holds_alternative<machine::instruction_t>(instr)) {
+				assemble_unsafe(std::get<machine::instruction_t>(instr), out);
+			}
+			else if (std::holds_alternative<std::vector<uint8_t>>(instr)) {
+				const auto& data = std::get<std::vector<uint8_t>>(instr);
+				out.insert(out.end(), data.begin(), data.end());
+			}
+			else {
+				// unknown component type, skip
+			}
+		}
+	}
 
 	template<bool unsafe>
 	void disassemble_memory_data(const bytecode_t& bytecode, memory_operand& out, size_t& pc) {
@@ -307,12 +335,45 @@ namespace machine::assembler {
 						throw std::runtime_error("Program counter out of bounds while reading register result");
 					}
 				uint8_t reg_byte = bytecode[pc++];
-				out.args.args_0r.result.type = result_arg::type_t::REGISTER;
-				out.args.args_0r.result.value.reg = byte_to_register(reg_byte);
+				register_t reg = byte_to_register(reg_byte);
+				switch (operands_type.num_operands) {
+					case instruction_helper::operands_type::NO_OPERANDS:
+						out.args.args_0r.result.type = result_arg::type_t::REGISTER;
+						out.args.args_0r.result.value.reg = reg;
+						break;
+					case instruction_helper::operands_type::ONE_OPERAND:
+						out.args.args_1r.result.type = result_arg::type_t::REGISTER;
+						out.args.args_1r.result.value.reg = reg;
+						break;
+					case instruction_helper::operands_type::MEMORY_OPERAND:
+						out.args.args_1r_mem.result.type = result_arg::type_t::REGISTER;
+						out.args.args_1r_mem.result.value.reg = reg;
+						break;
+					default:
+						if constexpr (!unsafe) {
+							throw std::runtime_error("Invalid number of operands for instruction with result");
+						}
+				}
 			}
 			else if (result_type == result_arg::type_t::MEMORY) {
 				out.args.args_0r.result.type = result_arg::type_t::MEMORY;
-				disassemble_memory_pointer_operand<unsafe>(bytecode, out.args.args_0r.result.value.mem, pc);
+				memory_pointer_operand mem;
+				disassemble_memory_pointer_operand<unsafe>(bytecode, mem, pc);
+				switch (operands_type.num_operands) {
+					case instruction_helper::operands_type::NO_OPERANDS:
+						out.args.args_0r.result.value.mem = mem;
+						break;
+					case instruction_helper::operands_type::ONE_OPERAND:
+						out.args.args_1r.result.value.mem = mem;
+						break;
+					case instruction_helper::operands_type::MEMORY_OPERAND:
+						out.args.args_1r_mem.result.value.mem = mem;
+						break;
+					default:
+						if constexpr (!unsafe) {
+							throw std::runtime_error("Invalid number of operands for instruction with result");
+						}
+				}
 			}
 		}
 		// then decode the operands

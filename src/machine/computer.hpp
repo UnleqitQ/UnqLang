@@ -40,6 +40,16 @@ namespace machine {
 			m_registers.eip = start_address;
 			m_state = execution_state_t::RUNNING;
 		}
+		void load_program(const program_t& program, uint32_t start_address = 0) {
+			if (program.size() + start_address > ram::SIZE) {
+				throw std::runtime_error("Program size exceeds RAM size");
+			}
+			assembler::bytecode_t bytecode;
+			assembler::assemble(program, bytecode);
+			std::copy(bytecode.begin(), bytecode.end(), m_ram.data.begin() + start_address);
+			m_registers.eip = start_address;
+			m_state = execution_state_t::RUNNING;
+		}
 		void step(); // Execute a single instruction
 		void run(int max_steps = -1); // Run until the end of the program or max_steps reached
 

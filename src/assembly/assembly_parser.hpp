@@ -37,6 +37,9 @@ namespace assembly {
 		} token_type;
 		std::string text;
 		friend std::ostream& operator<<(std::ostream& os, const assembly_token& tok);
+		bool operator==(const assembly_token& other) const {
+			return token_type == other.token_type && text == other.text;
+		}
 	};
 
 	std::vector<assembly_token> run_lexer(const std::string& input);

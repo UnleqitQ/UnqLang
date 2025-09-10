@@ -356,7 +356,7 @@ namespace assembly {
 					for (size_t i = 0; i < data.size(); ++i) {
 						os << std::format("0x{:02X}", data[i]);
 						if (i < data.size() - 1) {
-							os << ", ";
+							os << " ";
 						}
 					}
 					break;
