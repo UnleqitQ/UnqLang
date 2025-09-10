@@ -29,6 +29,10 @@ namespace assembly {
 			COMMENT, // e.g. ; this is a comment
 			END_OF_FILE, // end of input
 			PTR, // ptr
+
+			META, // e.g. db, dw, dd
+			STRING, // in e.g. db "hello, world"
+
 			UNKNOWN // unrecognized token
 		} token_type;
 		std::string text;
@@ -39,6 +43,11 @@ namespace assembly {
 	void remove_comments(std::vector<assembly_token>& tokens);
 	void join_newlines(const std::vector<assembly_token>& tokens, std::vector<assembly_token>& result);
 
+	enum class meta_type {
+		DB, // define byte
+		DW, // define word
+		DD // define double word
+	};
 	struct assembly_parse_component {
 		enum class type : uint8_t {
 			INSTRUCTION, // mov, add, sub, etc.
@@ -50,15 +59,18 @@ namespace assembly {
 			NEWLINE, // end of line
 			END_OF_FILE, // end of input
 			COMMA, // ,
+			META, // e.g. db, dw, dd
+			STRING, // string literal in e.g. db "hello, world"
 			UNKNOWN // unrecognized component
 		} component_type;
 		std::variant<
 			machine::operation, // INSTRUCTION
 			machine::register_t, // REGISTER
 			assembly_literal, // LITERAL
-			std::string, // LABEL DEFINITION
+			std::string, // LABEL DEFINITION, STRING
 			assembly_memory, // MEMORY
 			assembly_memory_pointer, // MEMORY_POINTER
+			meta_type, // META
 			std::monostate // NEWLINE, END_OF_FILE, UNKNOWN, COMMA
 		> value;
 		explicit assembly_parse_component(machine::operation op)
@@ -72,6 +84,15 @@ namespace assembly {
 		}
 		explicit assembly_parse_component(const std::string& label)
 			: component_type(type::LABEL), value(label) {
+		}
+		explicit assembly_parse_component(meta_type mt)
+			: component_type(type::META), value(mt) {
+		}
+		assembly_parse_component(type t, const std::string& text)
+			: component_type(t), value(text) {
+			if (t != type::LABEL && t != type::STRING) {
+				throw std::invalid_argument("Invalid type for this constructor");
+			}
 		}
 		explicit assembly_parse_component(assembly_memory mem)
 			: component_type(type::MEMORY), value(mem) {

@@ -35,13 +35,47 @@ namespace assembly {
 				return assembly_token{assembly_token::type::REGISTER, std::string(text.begin(), text.end())};
 			}, "to_token");
 		const Parser<char, assembly_token> data_size_parser =
-			tokens<char>({"dword"_t, "word"_t, "byte"_t}, "data_size").map<assembly_token>(
-				[](const std::vector<char>& text) {
-					return assembly_token{assembly_token::type::DATA_SIZE, std::string(text.begin(), text.end())};
-				}, "to_token");
+			tokens<char>({"dword"_t, "word"_t, "byte"_t}, "data_size")
+			.map<assembly_token>([](const std::vector<char>& text) {
+				return assembly_token{assembly_token::type::DATA_SIZE, std::string(text.begin(), text.end())};
+			}, "to_token");
 		const Parser<char, assembly_token> ptr_parser =
 			token("ptr").map<assembly_token>([](const std::vector<char>& text) {
 				return assembly_token{assembly_token::type::PTR, std::string(text.begin(), text.end())};
+			}, "to_token");
+		const Parser<char, char> escape_char_parser =
+			(symbol<char>('\\') > satisfy<char>([](char c) { return true; }, "any_char"))
+			.map<char>(
+				[](const char& c) {
+					switch (c) {
+						case 'n':
+							return '\n';
+						case 'r':
+							return '\r';
+						case 't':
+							return '\t';
+						case '\\':
+							return '\\';
+						case '"':
+							return '"';
+						default:
+							return c;
+					}
+				}, "escape_char");
+		const Parser<char, assembly_token> string_parser =
+			(symbol<char>('"') >
+				*(
+					escape_char_parser ||
+					satisfy<char>([](char c) { return c != '"'; }, "not_quote")
+				)
+				< symbol<char>('"'))
+			.map<assembly_token>([](const std::vector<char>& chars) {
+				return assembly_token{assembly_token::type::STRING, std::string(chars.begin(), chars.end())};
+			}, "to_token");
+		const Parser<char, assembly_token> meta_parser =
+			tokens<char>({"db"_t, "dw"_t, "dd"_t}, "meta")
+			.map<assembly_token>([](const std::vector<char>& text) {
+				return assembly_token{assembly_token::type::META, std::string(text.begin(), text.end())};
 			}, "to_token");
 		const Parser<char, assembly_token> decimal_number_parser =
 			(+satisfy<char>([](char c) { return c >= '0' && c <= '9'; }, "is_dec")).map<assembly_token>(
@@ -116,6 +150,7 @@ namespace assembly {
 
 		const Parser<char, assembly_token> assembly_token_parser =
 		(instruction_parser || register_parser || data_size_parser || ptr_parser
+			|| string_parser || meta_parser
 			|| number_parser || operator_parser || left_paren_parser ||
 			right_paren_parser || left_bracket_parser || right_bracket_parser || comma_parser || colon_parser ||
 			identifier_parser || comment_parser || space_parser || newline_parser);
@@ -217,6 +252,12 @@ namespace assembly {
 					break;
 				case assembly_token::type::PTR:
 					type_name = "PTR";
+					break;
+				case assembly_token::type::META:
+					type_name = "META";
+					break;
+				case assembly_token::type::STRING:
+					type_name = "STRING";
 					break;
 				case assembly_token::type::UNKNOWN:
 					type_name = "UNKNOWN";
@@ -399,10 +440,33 @@ namespace assembly {
 			is_token_type(assembly_token::type::COMMA).map<assembly_parse_component>([](const auto& /*c*/) {
 				return assembly_parse_component{assembly_parse_component::type::COMMA};
 			}, "to_component");
+
+		const Parser<assembly_token, assembly_parse_component> meta_parser =
+			is_token_type(assembly_token::type::META).map<assembly_parse_component>([](const assembly_token& tok) {
+				meta_type mt;
+				if (tok.text == "db") {
+					mt = meta_type::DB;
+				}
+				else if (tok.text == "dw") {
+					mt = meta_type::DW;
+				}
+				else if (tok.text == "dd") {
+					mt = meta_type::DD;
+				}
+				else {
+					throw std::invalid_argument("Invalid meta type: " + tok.text);
+				}
+				return assembly_parse_component{mt};
+			}, "to_component");
+		const Parser<assembly_token, assembly_parse_component> string_parser =
+			is_token_type(assembly_token::type::STRING).map<assembly_parse_component>([](const assembly_token& tok) {
+				return assembly_parse_component{assembly_literal(tok.text)};
+			}, "to_component");
+
 		const Parser<assembly_token, assembly_parse_component> assembly_component_parser =
 		(instruction_parser || register_parser || label_parser || literal_parser ||
 			label_definition_parser || memory_parser || memory_ptr_parser || newline_parser ||
-			end_of_file_parser || comma_parser);
+			end_of_file_parser || comma_parser || meta_parser || string_parser);
 		const Parser<assembly_token, std::vector<assembly_parse_component>> component_list_parser =
 			+assembly_component_parser;
 	} // namespace component_parser
@@ -656,14 +720,100 @@ namespace assembly {
 				[](const std::pair<assembly_parse_component, assembly_instruction::args_mr_t>& parts) {
 					return assembly_instruction{std::get<machine::operation>(parts.first.value), parts.second};
 				}, "to_instruction"));
-		Parser<assembly_parse_component, std::string> label_parser =
+		const Parser<assembly_parse_component, std::string> label_parser =
 			is_component_type(assembly_parse_component::type::LABEL).map<std::string>(
 				[](const assembly_parse_component& comp) {
 					return std::get<std::string>(comp.value);
 				}, "to_label");
-		Parser<assembly_parse_component, assembly_parse_component> newline_parser = is_component_type(
+		const Parser<assembly_parse_component, std::variant<uint32_t, std::string>> meta_data_parser =
+			(is_component_type(assembly_parse_component::type::LITERAL).filter([](const assembly_parse_component& comp) {
+				return std::get<assembly_literal>(comp.value).literal_type == assembly_literal::type::NUMBER;
+			}).map<std::variant<uint32_t, std::string>>(
+				[](const assembly_parse_component& comp) {
+					return static_cast<uint32_t>(std::get<int32_t>(std::get<assembly_literal>(
+						comp.value).value));
+				}, "to_number")) ||
+			(is_component_type(assembly_parse_component::type::STRING).map<std::variant<uint32_t, std::string>>(
+				[](const assembly_parse_component& comp) {
+					return std::get<std::string>(std::get<assembly_literal>(comp.value).value);
+				}, "to_string"));
+		void convert_meta(const meta_type& meta, const std::vector<std::variant<uint32_t, std::string>>& data,
+			std::vector<uint8_t>& output) {
+			switch (meta) {
+				case meta_type::DB:
+					for (const auto& item : data) {
+						if (std::holds_alternative<uint32_t>(item)) {
+							uint32_t value = std::get<uint32_t>(item);
+							if (value > 0xFF) {
+								throw std::out_of_range("DB value out of range: " + std::to_string(value));
+							}
+							output.push_back(static_cast<uint8_t>(value));
+						}
+						else if (std::holds_alternative<std::string>(item)) {
+							const std::string& str = std::get<std::string>(item);
+							output.insert(output.end(), str.begin(), str.end());
+						}
+					}
+					break;
+				case meta_type::DW:
+					for (const auto& item : data) {
+						if (std::holds_alternative<uint32_t>(item)) {
+							uint32_t value = std::get<uint32_t>(item);
+							if (value > 0xFFFF) {
+								throw std::out_of_range("DW value out of range: " + std::to_string(value));
+							}
+							output.push_back(static_cast<uint8_t>(value & 0xFF));
+							output.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+						}
+						else if (std::holds_alternative<std::string>(item)) {
+							const std::string& str = std::get<std::string>(item);
+							for (char c : str) {
+								output.push_back(static_cast<uint8_t>(c));
+								output.push_back(0); // Null-terminate each character
+							}
+						}
+					}
+					break;
+				case meta_type::DD:
+					for (const auto& item : data) {
+						if (std::holds_alternative<uint32_t>(item)) {
+							uint32_t value = std::get<uint32_t>(item);
+							output.push_back(static_cast<uint8_t>(value & 0xFF));
+							output.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+							output.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
+							output.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
+						}
+						else if (std::holds_alternative<std::string>(item)) {
+							const std::string& str = std::get<std::string>(item);
+							for (char c : str) {
+								output.push_back(static_cast<uint8_t>(c));
+								output.push_back(0); // Null-terminate each character
+								output.push_back(0);
+								output.push_back(0);
+							}
+						}
+					}
+					break;
+				default:
+					throw std::invalid_argument("Unknown meta type");
+			}
+		}
+		const Parser<assembly_parse_component, assembly_component> meta_parser =
+			(is_component_type(assembly_parse_component::type::META) +
+				(meta_data_parser % is_component_type(assembly_parse_component::type::COMMA)))
+			.map<assembly_component>(
+				[](const auto& parts) {
+					meta_type mt = std::get<meta_type>(parts.first.value);
+					const auto& data = parts.second;
+					std::vector<uint8_t> bytes;
+					convert_meta(mt, data, bytes);
+					return assembly_component{bytes};
+				}, "to_meta");
+
+
+		const Parser<assembly_parse_component, assembly_parse_component> newline_parser = is_component_type(
 			assembly_parse_component::type::NEWLINE);
-		const Parser<assembly_parse_component, assembly_component> instruction_or_label_parser =
+		const Parser<assembly_parse_component, assembly_component> line_parser =
 		(instruction_parser.map<assembly_component>([](const assembly_instruction& instr) {
 				return assembly_component{instr};
 			}, "to_component")
@@ -671,7 +821,7 @@ namespace assembly {
 				return assembly_component{label};
 			}, "to_component"));
 		const Parser<assembly_parse_component, std::vector<assembly_component>> instructions_parser =
-			(*newline_parser > instruction_or_label_parser + *(newline_parser > instruction_or_label_parser) < *
+			(*newline_parser > line_parser + *(newline_parser > line_parser) < *
 				newline_parser)
 			.map<std::vector<assembly_component>>(
 				[](const std::pair<assembly_component, std::vector<assembly_component>>& parts) {
