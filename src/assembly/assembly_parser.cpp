@@ -787,8 +787,8 @@ namespace assembly {
 			case assembly_parse_component::type::REGISTER:
 				os << "REGISTER(" << std::get<machine::register_t>(comp.value).to_string() << ")";
 				break;
-			case assembly_parse_component::type::DATA_SIZE:
-				os << "DATA_SIZE(" << static_cast<int>(std::get<machine::data_size_t>(comp.value)) << ")";
+			case assembly_parse_component::type::MEMORY_POINTER:
+				os << "MEMORY_POINTER(" << std::get<assembly_memory_pointer>(comp.value).to_string() << ")";
 				break;
 			case assembly_parse_component::type::LITERAL: {
 				const assembly_literal& lit = std::get<assembly_literal>(comp.value);
