@@ -146,6 +146,23 @@ namespace machine {
 		}
 
 		friend std::ostream& operator<<(std::ostream& os, const memory_operand& mem);
+
+		uint32_t get_size() const {
+			switch (memory_type) {
+				case type::DIRECT:
+					return 4; // int32 (4 bytes)
+				case type::REGISTER:
+					return 1; // register (1 byte)
+				case type::DISPLACEMENT:
+					return 1 + 4; // register (1 byte) + int32 (4 bytes)
+				case type::SCALED_INDEX:
+					return 1 + 1 + 1; // base register (1 byte) + index register (1 byte) + scale (1 byte)
+				case type::SCALED_INDEX_DISPLACEMENT:
+					return 1 + 1 + 1 + 4; // base register (1 byte) + index register (1 byte) + scale (1 byte) + int32 (4 bytes)
+				default:
+					throw std::runtime_error("Unknown memory operand type");
+			}
+		}
 	};
 	struct memory_pointer_operand {
 		data_size_t size;
@@ -156,6 +173,10 @@ namespace machine {
 		friend std::ostream& operator<<(std::ostream& os, const memory_pointer_operand& mem) {
 			os << mem.size << " PTR " << mem.memory;
 			return os;
+		}
+
+		uint32_t get_size() const {
+			return memory.get_size() + 1; // +1 for the size and type byte
 		}
 	};
 	struct operand_arg {
@@ -171,6 +192,19 @@ namespace machine {
 		} value;
 
 		friend std::ostream& operator<<(std::ostream& os, const operand_arg& arg);
+
+		uint32_t get_size() const {
+			switch (type) {
+				case type_t::REGISTER:
+					return 1; // register (1 byte)
+				case type_t::IMMEDIATE:
+					return 4; // int32 (4 bytes)
+				case type_t::MEMORY:
+					return value.mem.get_size();
+				default:
+					throw std::runtime_error("Unknown operand type");
+			}
+		}
 	};
 	struct result_arg {
 		enum class type_t : uint8_t {
@@ -197,6 +231,19 @@ namespace machine {
 			return type != type_t::UNDEFINED;
 		}
 		friend std::ostream& operator<<(std::ostream& os, const result_arg& res);
+
+		uint32_t get_size() const {
+			switch (type) {
+				case type_t::REGISTER:
+					return 1; // register (1 byte)
+				case type_t::MEMORY:
+					return value.mem.get_size();
+				case type_t::UNDEFINED:
+					return 0;
+				default:
+					throw std::runtime_error("Unknown result type");
+			}
+		}
 	};
 	template<size_t N, bool R, typename O = operand_arg>
 	struct args_t {
@@ -212,7 +259,33 @@ namespace machine {
 			: operands(ops), result(std::monostate{}) {
 			static_assert(!R, "No result provided for args_t with R == true");
 		}
+
+		uint32_t get_size() const;
 	};
+	template<>
+	inline uint32_t args_t<0, false>::get_size() const {
+		return 0;
+	}
+	template<>
+	inline uint32_t args_t<0, true>::get_size() const {
+		return result.get_size();
+	}
+	template<>
+	inline uint32_t args_t<1, false>::get_size() const {
+		return operands[0].get_size() + 1;
+	}
+	template<>
+	inline uint32_t args_t<1, true>::get_size() const {
+		return operands[0].get_size() + result.get_size() + 1;
+	}
+	template<>
+	inline uint32_t args_t<2, false>::get_size() const {
+		return operands[0].get_size() + operands[1].get_size() + 1;
+	}
+	template<>
+	inline uint32_t args_t<1, true, memory_operand>::get_size() const {
+		return operands[0].get_size() + result.get_size() + 1;
+	}
 	struct instruction_t {
 		operation op;
 		union {
@@ -246,6 +319,8 @@ namespace machine {
 		}
 
 		friend std::ostream& operator<<(std::ostream& os, const instruction_t& inst);
+
+		uint32_t get_size() const;
 	};
 	typedef std::vector<instruction_t> program_t;
 }

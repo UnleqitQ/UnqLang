@@ -39,17 +39,23 @@ namespace assembly {
 		struct displacement {
 			machine::register_t reg;
 			assembly_literal disp;
+
+			static constexpr uint32_t SIZE = 1 + 4; // reg (1) + disp (4)
 		};
 		struct scaled_index {
 			machine::register_t base;
 			machine::register_t index;
 			int8_t scale; // typically 1, 2, 4, or 8, but others are allowed
+
+			static constexpr uint32_t SIZE = 1 + 1 + 1; // base (1) + index (1) + scale (1)
 		};
 		struct scaled_index_displacement {
 			machine::register_t base;
 			machine::register_t index;
 			int8_t scale;
 			assembly_literal disp;
+
+			static constexpr uint32_t SIZE = 1 + 1 + 1 + 4; // base (1) + index (1) + scale (1) + disp (4)
 		};
 		type memory_type;
 		std::variant<assembly_literal, machine::register_t, displacement, scaled_index, scaled_index_displacement> value;
@@ -72,6 +78,22 @@ namespace assembly {
 		friend std::ostream& operator<<(std::ostream& os, const assembly_memory& mem) {
 			return os << mem.to_string();
 		}
+
+		uint32_t instruction_size() const {
+			switch (memory_type) {
+				case type::DIRECT:
+					return 4; // address (4)
+				case type::REGISTER:
+					return 1; // reg (1)
+				case type::DISPLACEMENT:
+					return displacement::SIZE;
+				case type::SCALED_INDEX:
+					return scaled_index::SIZE;
+				case type::SCALED_INDEX_DISPLACEMENT:
+					return scaled_index_displacement::SIZE;
+			}
+			return 0; // Should never reach here
+		}
 	};
 	struct assembly_memory_pointer {
 		machine::data_size_t size;
@@ -85,6 +107,10 @@ namespace assembly {
 		friend std::ostream& operator<<(std::ostream& os, const assembly_memory_pointer& ptr) {
 			os << ptr.size << " ptr " << ptr.mem;
 			return os;
+		}
+
+		uint32_t instruction_size() const {
+			return mem.instruction_size() + 1; // +1 for size and type specifier
 		}
 	};
 	struct assembly_operand {
@@ -122,6 +148,18 @@ namespace assembly {
 			}
 			return os;
 		}
+
+		uint32_t instruction_size() const {
+			switch (operand_type) {
+				case type::REGISTER:
+					return 1; // reg (1)
+				case type::LITERAL:
+					return 4; // literal (4)
+				case type::MEMORY_POINTER:
+					return std::get<assembly_memory_pointer>(value).instruction_size();
+			}
+			return 0; // Should never reach here
+		}
 	};
 	struct assembly_result {
 		enum class type : uint8_t {
@@ -149,6 +187,16 @@ namespace assembly {
 					break;
 			}
 			return os;
+		}
+
+		uint32_t instruction_size() const {
+			switch (result_type) {
+				case type::REGISTER:
+					return 1; // reg (1)
+				case type::MEMORY_POINTER:
+					return std::get<assembly_memory_pointer>(value).instruction_size();
+			}
+			return 0; // Should never reach here
 		}
 	};
 	struct assembly_instruction {
@@ -245,6 +293,32 @@ namespace assembly {
 			std::visit([&os](const auto& a) { os << a; }, inst.args);
 			return os;
 		}
+
+		uint32_t instruction_size() const {
+			uint32_t size = 1; // 1 byte for operation
+			if (std::holds_alternative<args_t<2, false>>(args)) {
+				size += 1; // 1 byte for args types
+				size += std::get<args_t<2, false>>(args).operands[0].instruction_size();
+				size += std::get<args_t<2, false>>(args).operands[1].instruction_size();
+			}
+			else if (std::holds_alternative<args_t<1, true>>(args)) {
+				size += 1; // 1 byte for args types
+				size += std::get<args_t<1, true>>(args).result.instruction_size();
+				size += std::get<args_t<1, true>>(args).operands[0].instruction_size();
+			}
+			else if (std::holds_alternative<args_t<1, false>>(args)) {
+				size += 1; // 1 byte for args types
+				size += std::get<args_t<1, false>>(args).operands[0].instruction_size();
+			}
+			else if (std::holds_alternative<args_t<0, true>>(args)) {
+				size += std::get<args_t<0, true>>(args).result.instruction_size();
+			}
+			else if (std::holds_alternative<args_mr_t>(args)) {
+				size += std::get<args_mr_t>(args).mem.instruction_size();
+				size += std::get<args_mr_t>(args).result.instruction_size();
+			}
+			return size;
+		}
 	};
 	struct assembly_component {
 		enum class type : uint8_t {
@@ -270,6 +344,13 @@ namespace assembly {
 					break;
 			}
 			return os;
+		}
+
+		uint32_t instruction_size() const {
+			if (component_type == type::INSTRUCTION) {
+				return std::get<assembly_instruction>(value).instruction_size();
+			}
+			return 0; // Labels do not contribute to instruction size
 		}
 	};
 	typedef std::vector<assembly_component> assembly_program_t;

@@ -308,4 +308,83 @@ namespace machine {
 		}
 		return os;
 	}
+	inline uint32_t instruction_t::get_size() const {
+		switch (op) {
+			// One read only memory, one read & write (LEA)
+			case operation::LEA:
+				return args.args_1r_mem.get_size() + 1;
+			// One read only, one read & write
+			case operation::MOV:
+			case operation::ADD:
+			case operation::ADC:
+			case operation::SUB:
+			case operation::SBB:
+			case operation::MUL:
+			case operation::IMUL:
+			case operation::DIV:
+			case operation::IDIV:
+			case operation::MOD:
+			case operation::IMOD:
+			case operation::AND:
+			case operation::OR:
+			case operation::XOR:
+			case operation::SHL:
+			case operation::SHR:
+			case operation::SAR:
+			case operation::ROL:
+			case operation::ROR:
+			case operation::RCL:
+			case operation::RCR:
+				return args.args_1r.get_size() + 1;
+			// Two read only
+			case operation::CMP:
+			case operation::TEST:
+				return args.args_2n.get_size() + 1;
+			// One read & write
+			case operation::NOT:
+			case operation::NEG:
+			case operation::INC:
+			case operation::DEC:
+			case operation::POP:
+			case operation::IN:
+				return args.args_0r.get_size() + 1;
+			// One read only
+			case operation::PUSH:
+			case operation::JMP:
+			case operation::JZ:
+			case operation::JNZ:
+			case operation::JC:
+			case operation::JNC:
+			case operation::JO:
+			case operation::JNO:
+			case operation::JP:
+			case operation::JNP:
+			case operation::JS:
+			case operation::JNS:
+			case operation::JG:
+			case operation::JGE:
+			case operation::JL:
+			case operation::JLE:
+			case operation::JA:
+			case operation::JAE:
+			case operation::JB:
+			case operation::JBE:
+			case operation::CALL:
+			case operation::OUT:
+				return args.args_1n.get_size() + 1;
+			// No arguments
+			case operation::NOP:
+			case operation::RET:
+			case operation::PUSHA:
+			case operation::POPA:
+			case operation::PUSHF:
+			case operation::POPF:
+			case operation::CLC:
+			case operation::STC:
+			case operation::HLT:
+				return 1;
+			default:
+				return 1; // Default to 1 byte for unrecognized operations
+		}
+	}
 } // namespace machine
