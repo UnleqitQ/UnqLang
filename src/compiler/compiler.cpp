@@ -32,7 +32,7 @@ namespace compiler {
 					const auto& element = m_program.body[ref];
 					if (std::holds_alternative<ast_statement_struct_declaration>(element)) {
 						const auto& [name, body] = std::get<ast_statement_struct_declaration>(element);
-						return deduce_type_struct_size(body);
+						return 0; // deduce_type_struct_size(body);
 					}
 					else {
 						throw std::runtime_error("Custom type is not a struct: " + type_name);
