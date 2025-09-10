@@ -217,9 +217,14 @@ namespace machine {
 	inline std::ostream& operator<<(std::ostream& os, const instruction_t& inst) {
 		os << inst.op;
 		switch (inst.op) {
+			// One read only memory, one read & write (LEA)
+			case operation::LEA: {
+				const auto& args = inst.args.args_1r_mem;
+				os << ' ' << args.result << ", " << args.operands[0];
+				break;
+			}
 			// One read only, one read & write
 			case operation::MOV:
-			case operation::LEA:
 			case operation::ADD:
 			case operation::ADC:
 			case operation::SUB:
@@ -241,9 +246,6 @@ namespace machine {
 			case operation::RCL:
 			case operation::RCR: {
 				const auto& args = inst.args.args_1r;
-				if (args.result.type == result_arg::type_t::MEMORY) {
-					os << ' ' << args.result.value.mem.size;
-				}
 				os << ' ' << args.result << ", " << args.operands[0];
 				break;
 			}
@@ -262,9 +264,6 @@ namespace machine {
 			case operation::POP:
 			case operation::IN: {
 				const auto& args = inst.args.args_0r;
-				if (args.result.type == result_arg::type_t::MEMORY) {
-					os << ' ' << args.result.value.mem.size;
-				}
 				os << ' ' << args.result;
 				break;
 			}

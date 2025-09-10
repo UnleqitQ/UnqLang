@@ -129,24 +129,34 @@ namespace machine {
 			scaled_index s_index; // For SCALED_INDEX type
 			scaled_index_displacement s_index_disp; // For SCALED_INDEX_DISPLACEMENT type
 		} value;
-		data_size_t size;
-		explicit memory_operand(uint32_t addr, data_size_t sz = data_size_t::DWORD)
-			: memory_type(type::DIRECT), value(addr), size(sz) {
+		explicit memory_operand(uint32_t addr)
+			: memory_type(type::DIRECT), value(addr) {
 		}
-		explicit memory_operand(register_t r, data_size_t sz = data_size_t::DWORD)
-			: memory_type(type::REGISTER), value({.reg = r}), size(sz) {
+		explicit memory_operand(register_t r)
+			: memory_type(type::REGISTER), value({.reg = r}) {
 		}
-		memory_operand(register_t base, int32_t disp, data_size_t sz = data_size_t::DWORD)
-			: memory_type(type::DISPLACEMENT), value({.disp = {base, disp}}), size(sz) {
+		memory_operand(register_t base, int32_t disp)
+			: memory_type(type::DISPLACEMENT), value({.disp = {base, disp}}) {
 		}
-		memory_operand(register_t base, register_t index, int8_t scale, data_size_t sz = data_size_t::DWORD)
-			: memory_type(type::SCALED_INDEX), value({.s_index = {base, index, scale}}), size(sz) {
+		memory_operand(register_t base, register_t index, int8_t scale)
+			: memory_type(type::SCALED_INDEX), value({.s_index = {base, index, scale}}) {
 		}
-		memory_operand(register_t base, register_t index, int8_t scale, int32_t disp, data_size_t sz = data_size_t::DWORD)
-			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value({.s_index_disp = {base, index, scale, disp}}), size(sz) {
+		memory_operand(register_t base, register_t index, int8_t scale, int32_t disp)
+			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value({.s_index_disp = {base, index, scale, disp}}) {
 		}
 
 		friend std::ostream& operator<<(std::ostream& os, const memory_operand& mem);
+	};
+	struct memory_pointer_operand {
+		data_size_t size;
+		memory_operand memory;
+		memory_pointer_operand(data_size_t sz, const memory_operand& mem)
+			: size(sz), memory(mem) {
+		}
+		friend std::ostream& operator<<(std::ostream& os, const memory_pointer_operand& mem) {
+			os << mem.size << " PTR " << mem.memory;
+			return os;
+		}
 	};
 	struct operand_arg {
 		enum class type_t : uint8_t {
@@ -157,7 +167,7 @@ namespace machine {
 		union {
 			register_t reg;
 			int32_t imm;
-			memory_operand mem;
+			memory_pointer_operand mem;
 		} value;
 
 		friend std::ostream& operator<<(std::ostream& os, const operand_arg& arg);
@@ -169,22 +179,22 @@ namespace machine {
 		} type;
 		union {
 			register_t reg;
-			memory_operand mem;
+			memory_pointer_operand mem;
 		} value;
 
 		friend std::ostream& operator<<(std::ostream& os, const result_arg& res);
 	};
-	template<size_t N, bool R>
+	template<size_t N, bool R, typename O = operand_arg>
 	struct args_t {
-		std::array<operand_arg, N> operands;
+		std::array<O, N> operands;
 		std::conditional_t<R, result_arg, std::monostate> result;
 		args_t() : operands{}, result{} {
 		}
-		args_t(const std::array<operand_arg, N>& ops, result_arg res)
+		args_t(const std::array<O, N>& ops, result_arg res)
 			: operands(ops), result(res) {
 			static_assert(R, "Result provided for args_t with R == false");
 		}
-		args_t(const std::array<operand_arg, N>& ops)
+		args_t(const std::array<O, N>& ops)
 			: operands(ops), result(std::monostate{}) {
 			static_assert(!R, "No result provided for args_t with R == true");
 		}
@@ -197,6 +207,7 @@ namespace machine {
 			args_t<1, false> args_1n;
 			args_t<0, true> args_0r;
 			args_t<0, false> args_0n;
+			args_t<1, true, memory_operand> args_1r_mem;
 		} args;
 
 		instruction_t() : op(operation::NOP), args{.args_0n = {}} {
@@ -215,6 +226,9 @@ namespace machine {
 		}
 		instruction_t(const operation oper, const args_t<0, false>& a)
 			: op(oper), args{.args_0n = a} {
+		}
+		instruction_t(const operation oper, const args_t<1, true, memory_operand>& a)
+			: op(oper), args{.args_1r_mem = a} {
 		}
 
 		friend std::ostream& operator<<(std::ostream& os, const instruction_t& inst);
