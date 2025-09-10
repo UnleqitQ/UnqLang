@@ -143,7 +143,9 @@ namespace assembly {
 			}
 			case assembly_operand::type::MEMORY_POINTER: {
 				const auto mem = std::get<assembly_memory_pointer>(op.value);
-				return machine::operand_arg{machine::operand_arg::type_t::MEMORY, {.mem = assemble_memory_pointer(mem, label_map)}};
+				return machine::operand_arg{
+					machine::operand_arg::type_t::MEMORY, {.mem = assemble_memory_pointer(mem, label_map)}
+				};
 			}
 		}
 		throw std::runtime_error("Unknown operand type");
@@ -207,12 +209,13 @@ namespace assembly {
 		return result;
 	}
 	void retrieve_labels(const assembly_program_t& assembly_program, std::unordered_map<std::string, uint32_t>& label_map,
+		bool byte_addressing,
 		uint32_t start_address) {
 		uint32_t address = start_address;
 		for (const auto& comp : assembly_program) {
 			if (comp.component_type == assembly_component::type::LABEL) {
 				const auto& label = std::get<std::string>(comp.value);
-				if (label_map.find(label) != label_map.end()) {
+				if (label_map.contains(label)) {
 					std::cerr << "Warning: Duplicate label definition: " << label << std::endl;
 				}
 				else {
@@ -220,15 +223,22 @@ namespace assembly {
 				}
 			}
 			else if (comp.component_type == assembly_component::type::INSTRUCTION) {
-				++address; // Each instruction is 1 address unit
+				if (byte_addressing) {
+					address += std::get<assembly_instruction>(comp.value).instruction_size();
+				}
+				else {
+					++address; // Each instruction is 1 address unit
+				}
 			}
 		}
 	}
 
-	machine::program_t assemble(const assembly_program_t& assembly_program, uint32_t start_address) {
+	machine::program_t assemble(const assembly_program_t& assembly_program,
+		bool byte_addressing,
+		uint32_t start_address) {
 		machine::program_t program;
 		std::unordered_map<std::string, uint32_t> label_map;
-		retrieve_labels(assembly_program, label_map, start_address);
+		retrieve_labels(assembly_program, label_map, byte_addressing, start_address);
 		program.reserve(assembly_program.size() - label_map.size());
 		for (const auto& comp : assembly_program) {
 			if (comp.component_type == assembly_component::type::INSTRUCTION) {
