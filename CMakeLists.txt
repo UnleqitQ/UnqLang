@@ -8,6 +8,7 @@ add_executable(MiscMachine
 	src/assembly/assembly_parser.cpp
 	src/assembly/assembly.cpp
 	src/machine/computer.cpp
+	src/machine/computer_split.cpp
 	src/main.cpp
 	src/compiler/lexer.cpp
 	src/compiler/ast.cpp
