@@ -21,5 +21,11 @@ add_executable(MiscMachine
 
 	src/main.cpp
 )
+add_executable(MiscMachine_assembler
+
+	src/main_assembler.cpp
+)
 
 target_link_libraries(MiscMachine MiscMachineLib)
+target_link_libraries(MiscMachine_assembler MiscMachineLib)
+
