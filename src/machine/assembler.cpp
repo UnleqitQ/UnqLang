@@ -356,17 +356,19 @@ namespace machine::assembler {
 				}
 			}
 			else if (result_type == result_arg::type_t::MEMORY) {
-				out.args.args_0r.result.type = result_arg::type_t::MEMORY;
 				memory_pointer_operand mem;
 				disassemble_memory_pointer_operand<unsafe>(bytecode, mem, pc);
 				switch (operands_type.num_operands) {
 					case instruction_helper::operands_type::NO_OPERANDS:
+						out.args.args_0r.result.type = result_arg::type_t::MEMORY;
 						out.args.args_0r.result.value.mem = mem;
 						break;
 					case instruction_helper::operands_type::ONE_OPERAND:
+						out.args.args_1r.result.type = result_arg::type_t::MEMORY;
 						out.args.args_1r.result.value.mem = mem;
 						break;
 					case instruction_helper::operands_type::MEMORY_OPERAND:
+						out.args.args_1r_mem.result.type = result_arg::type_t::MEMORY;
 						out.args.args_1r_mem.result.value.mem = mem;
 						break;
 					default:
