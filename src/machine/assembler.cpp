@@ -22,18 +22,29 @@ namespace machine::assembler {
 		// register is currently 6 bits, but we use a full byte for future expansion
 		// register_t already saves it in the correct format, so we can just copy the byte
 
-		uint8_t reg_byte;
-		std::memcpy(&reg_byte, &reg, sizeof(uint8_t));
-		return reg_byte;
+		return reinterpret_cast<const uint8_t&>(reg);
 	}
+	inline register_t byte_to_register(const uint8_t& byte) {
+		return reinterpret_cast<const register_t&>(byte);
+	}
+	void assemble_32bit_integer(uint32_t value, bytecode_t& out) {
+		out.resize(out.size() + 4);
+		memcpy(&out[out.size() - 4], &value, 4);
+	}
+	void disassemble_32bit_integer(const bytecode_t& bytecode, size_t& pc, uint32_t& out) {
+		if (pc + 4 > bytecode.size()) {
+			throw std::runtime_error("Program counter out of bounds while reading 32-bit integer");
+		}
+		memcpy(&out, &bytecode[pc], 4);
+		pc += 4;
+	}
+
 	void assemble_memory_data(const memory_operand memory, bytecode_t& out) {
 		switch (memory.memory_type) {
 			case memory_operand::type::DIRECT: {
 				// direct memory address
 				uint32_t addr = memory.value.direct_address;
-				for (size_t i = 0; i < 4; i++) {
-					out.push_back(static_cast<uint8_t>(addr >> (i * 8) & 0xFF));
-				}
+				assemble_32bit_integer(addr, out);
 				break;
 			}
 			case memory_operand::type::REGISTER: {
@@ -47,9 +58,7 @@ namespace machine::assembler {
 				uint8_t reg_byte = register_to_byte(memory.value.disp.base);
 				out.push_back(reg_byte);
 				int32_t disp = memory.value.disp.disp;
-				for (size_t i = 0; i < 4; i++) {
-					out.push_back(static_cast<uint8_t>(disp >> (i * 8) & 0xFF));
-				}
+				assemble_32bit_integer(disp, out);
 				break;
 			}
 			case memory_operand::type::SCALED_INDEX: {
@@ -71,9 +80,7 @@ namespace machine::assembler {
 				int8_t scale = memory.value.s_index_disp.scale;
 				out.push_back(static_cast<uint8_t>(scale));
 				int32_t disp = memory.value.s_index_disp.disp;
-				for (size_t i = 0; i < 4; i++) {
-					out.push_back(static_cast<uint8_t>(disp >> (i * 8) & 0xFF));
-				}
+				assemble_32bit_integer(disp, out);
 				break;
 			}
 		}
@@ -157,6 +164,170 @@ namespace machine::assembler {
 	void assemble(const machine::program_t& program, bytecode_t& out) {
 		for (const auto& instr : program) {
 			assemble(instr, out);
+		}
+	}
+
+	void disassemble_memory_data(const bytecode_t& bytecode, memory_operand& out, size_t& pc) {
+		if (pc >= bytecode.size()) {
+			throw std::runtime_error("Program counter out of bounds while reading memory data");
+		}
+		switch (out.memory_type) {
+			case memory_operand::type::DIRECT:
+				disassemble_32bit_integer(bytecode, pc, out.value.direct_address);
+				break;
+			case memory_operand::type::REGISTER: {
+				if (pc >= bytecode.size()) {
+					throw std::runtime_error("Program counter out of bounds while reading register memory operand");
+				}
+				uint8_t reg_byte = bytecode[pc++];
+				out.value.reg = byte_to_register(reg_byte);
+				break;
+			}
+			case memory_operand::type::DISPLACEMENT: {
+				if (pc >= bytecode.size()) {
+					throw std::runtime_error(
+						"Program counter out of bounds while reading base register of displacement memory operand");
+				}
+				uint8_t reg_byte = bytecode[pc++];
+				out.value.disp.base = byte_to_register(reg_byte);
+				disassemble_32bit_integer(bytecode, pc, reinterpret_cast<uint32_t&>(out.value.disp.disp));
+				break;
+			}
+			case memory_operand::type::SCALED_INDEX: {
+				if (pc + 3 > bytecode.size()) {
+					throw std::runtime_error("Program counter out of bounds while reading scaled index memory operand");
+				}
+				uint8_t base_reg_byte = bytecode[pc++];
+				out.value.s_index.base = byte_to_register(base_reg_byte);
+				uint8_t index_reg_byte = bytecode[pc++];
+				out.value.s_index.index = byte_to_register(index_reg_byte);
+				uint8_t scale_byte = bytecode[pc++];
+				out.value.s_index.scale = static_cast<int8_t>(scale_byte);
+				break;
+			}
+			case memory_operand::type::SCALED_INDEX_DISPLACEMENT: {
+				if (pc + 7 > bytecode.size()) {
+					throw std::runtime_error(
+						"Program counter out of bounds while reading scaled index with displacement memory operand");
+				}
+				uint8_t base_reg_byte = bytecode[pc++];
+				out.value.s_index_disp.base = byte_to_register(base_reg_byte);
+				uint8_t index_reg_byte = bytecode[pc++];
+				out.value.s_index_disp.index = byte_to_register(index_reg_byte);
+				uint8_t scale_byte = bytecode[pc++];
+				out.value.s_index_disp.scale = static_cast<int8_t>(scale_byte);
+				disassemble_32bit_integer(bytecode, pc, reinterpret_cast<uint32_t&>(out.value.s_index_disp.disp));
+				break;
+			}
+		}
+	}
+	void disassemble_memory_pointer_operand(const bytecode_t& bytecode, memory_pointer_operand& out, size_t& pc) {
+		if (pc >= bytecode.size()) {
+			throw std::runtime_error("Program counter out of bounds while reading memory pointer operand");
+		}
+		uint8_t size_type = bytecode[pc++];
+		out.size = static_cast<data_size_t>(size_type & 0x03);
+		out.memory.memory_type = static_cast<memory_operand::type>(size_type >> 2 & 0x03);
+		disassemble_memory_data(bytecode, out.memory, pc);
+	}
+	void disassemble_operand(const bytecode_t& bytecode, operand_arg& out, size_t& pc) {
+		switch (out.type) {
+			case operand_arg::type_t::REGISTER: {
+				if (pc >= bytecode.size()) {
+					throw std::runtime_error("Program counter out of bounds while reading register operand");
+				}
+				uint8_t reg_byte = bytecode[pc++];
+				out.value.reg = byte_to_register(reg_byte);
+				break;
+			}
+			case operand_arg::type_t::IMMEDIATE: {
+				if (pc + 4 > bytecode.size()) {
+					throw std::runtime_error("Program counter out of bounds while reading immediate operand");
+				}
+				disassemble_32bit_integer(bytecode, pc, reinterpret_cast<uint32_t&>(out.value.imm));
+				break;
+			}
+			case operand_arg::type_t::MEMORY: {
+				disassemble_memory_pointer_operand(bytecode, out.value.mem, pc);
+				break;
+			}
+		}
+	}
+	void disassemble(const bytecode_t& bytecode, machine::instruction_t& out, size_t& pc) {
+		if (pc >= bytecode.size()) {
+			throw std::runtime_error("Program counter out of bounds");
+		}
+		uint8_t opcode = bytecode[pc++];
+		out.op = static_cast<machine::operation>(opcode & 0x7F);
+		result_arg::type_t result_type = static_cast<result_arg::type_t>((opcode >> 7) & 0x01);
+		auto operands_type = instruction_helper::get_operands_type(out.op);
+		// if there is a result, decode it next
+		if (operands_type.has_result) {
+			if (result_type == result_arg::type_t::REGISTER) {
+				if (pc >= bytecode.size()) {
+					throw std::runtime_error("Program counter out of bounds while reading register result");
+				}
+				uint8_t reg_byte = bytecode[pc++];
+				out.args.args_0r.result.type = result_arg::type_t::REGISTER;
+				out.args.args_0r.result.value.reg = byte_to_register(reg_byte);
+			}
+			else if (result_type == result_arg::type_t::MEMORY) {
+				out.args.args_0r.result.type = result_arg::type_t::MEMORY;
+				disassemble_memory_pointer_operand(bytecode, out.args.args_0r.result.value.mem, pc);
+			}
+		}
+		// then decode the operands
+		switch (operands_type.num_operands) {
+			case instruction_helper::operands_type::NO_OPERANDS:
+				// no operands to decode
+				break;
+			case instruction_helper::operands_type::ONE_OPERAND: {
+				operand_arg::type_t op_type = static_cast<operand_arg::type_t>(bytecode[pc++]);
+				if (operands_type.has_result) {
+					out.args.args_1r.operands[0].type = op_type;
+					disassemble_operand(bytecode, out.args.args_1r.operands[0], pc);
+				}
+				else {
+					out.args.args_1n.operands[0].type = op_type;
+					disassemble_operand(bytecode, out.args.args_1n.operands[0], pc);
+				}
+				break;
+			}
+			case instruction_helper::operands_type::TWO_OPERANDS: {
+				if (pc >= bytecode.size()) {
+					throw std::runtime_error("Program counter out of bounds while reading two operand types");
+				}
+				uint8_t types = bytecode[pc++];
+				operand_arg::type_t op1_type = static_cast<operand_arg::type_t>(types & 0x03);
+				operand_arg::type_t op2_type = static_cast<operand_arg::type_t>((types >> 2) & 0x03);
+				out.args.args_2n.operands[0].type = op1_type;
+				out.args.args_2n.operands[1].type = op2_type;
+				disassemble_operand(bytecode, out.args.args_2n.operands[0], pc);
+				disassemble_operand(bytecode, out.args.args_2n.operands[1], pc);
+				break;
+			}
+			case instruction_helper::operands_type::MEMORY_OPERAND: {
+				if (pc >= bytecode.size()) {
+					throw std::runtime_error("Program counter out of bounds while reading memory operand type");
+				}
+				memory_operand::type mem_type = static_cast<memory_operand::type>(bytecode[pc++]);
+				out.args.args_1r_mem.operands[0].memory_type = mem_type;
+				disassemble_memory_data(bytecode, out.args.args_1r_mem.operands[0], pc);
+				break;
+			}
+			default:
+				throw std::runtime_error("Unknown number of operands");
+		}
+	}
+	void disassemble(const bytecode_t& bytecode, machine::program_t& out, size_t start, size_t end) {
+		if (end > bytecode.size()) {
+			end = bytecode.size();
+		}
+		size_t pc = start;
+		while (pc < end) {
+			machine::instruction_t instr;
+			disassemble(bytecode, instr, pc);
+			out.push_back(instr);
 		}
 	}
 } // namespace machine::assembler
