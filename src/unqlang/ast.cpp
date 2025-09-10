@@ -5,7 +5,7 @@
 #include "../parser.hpp"
 #include "../shift_reduce_parser.hpp"
 
-namespace compiler {
+namespace unqlang {
 	// utility functions
 	namespace util {
 		std::string lexer_token_type_to_string(const lexer_token::type_t type) {

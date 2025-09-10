@@ -6,7 +6,7 @@
 #include <iostream>
 #include <format>
 
-namespace compiler {
+namespace unqlang {
 	enum class operator_type_t : uint8_t {
 		Plus, // +
 		Minus, // -
@@ -123,59 +123,59 @@ namespace compiler {
 } // compiler
 
 template<>
-struct std::formatter<compiler::operator_type_t> : std::formatter<std::string> {
-	auto format(const compiler::operator_type_t& op, format_context& ctx) const {
+struct std::formatter<unqlang::operator_type_t> : std::formatter<std::string> {
+	auto format(const unqlang::operator_type_t& op, format_context& ctx) const {
 		std::string op_str;
 		switch (op) {
-			case compiler::operator_type_t::Plus: op_str = "+";
+			case unqlang::operator_type_t::Plus: op_str = "+";
 				break;
-			case compiler::operator_type_t::Minus: op_str = "-";
+			case unqlang::operator_type_t::Minus: op_str = "-";
 				break;
-			case compiler::operator_type_t::Asterisk: op_str = "*";
+			case unqlang::operator_type_t::Asterisk: op_str = "*";
 				break;
-			case compiler::operator_type_t::Slash: op_str = "/";
+			case unqlang::operator_type_t::Slash: op_str = "/";
 				break;
-			case compiler::operator_type_t::Percent: op_str = "%";
+			case unqlang::operator_type_t::Percent: op_str = "%";
 				break;
-			case compiler::operator_type_t::Exclamation: op_str = "!";
+			case unqlang::operator_type_t::Exclamation: op_str = "!";
 				break;
-			case compiler::operator_type_t::Question: op_str = "?";
+			case unqlang::operator_type_t::Question: op_str = "?";
 				break;
-			case compiler::operator_type_t::Arrow: op_str = "->";
+			case unqlang::operator_type_t::Arrow: op_str = "->";
 				break;
-			case compiler::operator_type_t::LessThan: op_str = "<";
+			case unqlang::operator_type_t::LessThan: op_str = "<";
 				break;
-			case compiler::operator_type_t::GreaterThan: op_str = ">";
+			case unqlang::operator_type_t::GreaterThan: op_str = ">";
 				break;
-			case compiler::operator_type_t::ShiftLeft: op_str = "<<";
+			case unqlang::operator_type_t::ShiftLeft: op_str = "<<";
 				break;
-			case compiler::operator_type_t::ShiftRight: op_str = ">>";
+			case unqlang::operator_type_t::ShiftRight: op_str = ">>";
 				break;
-			case compiler::operator_type_t::Ampersand: op_str = "&";
+			case unqlang::operator_type_t::Ampersand: op_str = "&";
 				break;
-			case compiler::operator_type_t::Pipe: op_str = "|";
+			case unqlang::operator_type_t::Pipe: op_str = "|";
 				break;
-			case compiler::operator_type_t::Caret: op_str = "^";
+			case unqlang::operator_type_t::Caret: op_str = "^";
 				break;
-			case compiler::operator_type_t::Tilde: op_str = "~";
+			case unqlang::operator_type_t::Tilde: op_str = "~";
 				break;
-			case compiler::operator_type_t::PlusPlus: op_str = "++";
+			case unqlang::operator_type_t::PlusPlus: op_str = "++";
 				break;
-			case compiler::operator_type_t::MinusMinus: op_str = "--";
+			case unqlang::operator_type_t::MinusMinus: op_str = "--";
 				break;
-			case compiler::operator_type_t::EqualEqual: op_str = "==";
+			case unqlang::operator_type_t::EqualEqual: op_str = "==";
 				break;
-			case compiler::operator_type_t::NotEqual: op_str = "!=";
+			case unqlang::operator_type_t::NotEqual: op_str = "!=";
 				break;
-			case compiler::operator_type_t::LessEqual: op_str = "<=";
+			case unqlang::operator_type_t::LessEqual: op_str = "<=";
 				break;
-			case compiler::operator_type_t::GreaterEqual: op_str = ">=";
+			case unqlang::operator_type_t::GreaterEqual: op_str = ">=";
 				break;
-			case compiler::operator_type_t::LogicalAnd: op_str = "&&";
+			case unqlang::operator_type_t::LogicalAnd: op_str = "&&";
 				break;
-			case compiler::operator_type_t::LogicalOr: op_str = "||";
+			case unqlang::operator_type_t::LogicalOr: op_str = "||";
 				break;
-			case compiler::operator_type_t::Equal: op_str = "=";
+			case unqlang::operator_type_t::Equal: op_str = "=";
 				break;
 			default: op_str = "UnknownOperator";
 				break;
@@ -184,29 +184,29 @@ struct std::formatter<compiler::operator_type_t> : std::formatter<std::string> {
 	}
 };
 template<>
-struct std::formatter<compiler::punctuation_type_t> : std::formatter<std::string> {
-	auto format(const compiler::punctuation_type_t& punc, format_context& ctx) const {
+struct std::formatter<unqlang::punctuation_type_t> : std::formatter<std::string> {
+	auto format(const unqlang::punctuation_type_t& punc, format_context& ctx) const {
 		std::string punc_str;
 		switch (punc) {
-			case compiler::punctuation_type_t::LeftParen: punc_str = "(";
+			case unqlang::punctuation_type_t::LeftParen: punc_str = "(";
 				break;
-			case compiler::punctuation_type_t::RightParen: punc_str = ")";
+			case unqlang::punctuation_type_t::RightParen: punc_str = ")";
 				break;
-			case compiler::punctuation_type_t::LeftBrace: punc_str = "{";
+			case unqlang::punctuation_type_t::LeftBrace: punc_str = "{";
 				break;
-			case compiler::punctuation_type_t::RightBrace: punc_str = "}";
+			case unqlang::punctuation_type_t::RightBrace: punc_str = "}";
 				break;
-			case compiler::punctuation_type_t::LeftBracket: punc_str = "[";
+			case unqlang::punctuation_type_t::LeftBracket: punc_str = "[";
 				break;
-			case compiler::punctuation_type_t::RightBracket: punc_str = "]";
+			case unqlang::punctuation_type_t::RightBracket: punc_str = "]";
 				break;
-			case compiler::punctuation_type_t::Semicolon: punc_str = ";";
+			case unqlang::punctuation_type_t::Semicolon: punc_str = ";";
 				break;
-			case compiler::punctuation_type_t::Comma: punc_str = ",";
+			case unqlang::punctuation_type_t::Comma: punc_str = ",";
 				break;
-			case compiler::punctuation_type_t::Dot: punc_str = ".";
+			case unqlang::punctuation_type_t::Dot: punc_str = ".";
 				break;
-			case compiler::punctuation_type_t::Colon: punc_str = ":";
+			case unqlang::punctuation_type_t::Colon: punc_str = ":";
 				break;
 			default: punc_str = "UnknownPunctuation";
 				break;

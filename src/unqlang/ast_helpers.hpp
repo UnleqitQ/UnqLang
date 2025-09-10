@@ -5,7 +5,7 @@
 #include "ast.hpp"
 #include "analysis/types.hpp"
 
-namespace compiler {
+namespace unqlang {
 	namespace common_types {
 		// Common types
 		static const analysis::types::type_node void_type = analysis::types::primitive_type::VOID;

@@ -2,7 +2,7 @@
 #include <iostream>
 #include "../parser.hpp"
 
-namespace compiler {
+namespace unqlang {
 	operator_type_t lexer_parse_operator_type(const std::string& op_str) {
 		if (op_str == "+") return operator_type_t::Plus;
 		if (op_str == "-") return operator_type_t::Minus;

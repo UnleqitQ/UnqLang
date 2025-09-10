@@ -7,7 +7,7 @@
 
 #include "lexer.hpp"
 
-namespace compiler {
+namespace unqlang {
 	// type system AST
 	struct ast_type_node;
 	struct ast_type_pointer {
@@ -485,24 +485,24 @@ namespace compiler {
 } // compiler
 
 template<>
-struct std::hash<compiler::ast_expression_literal> {
-	size_t operator()(const compiler::ast_expression_literal& lit) const noexcept {
+struct std::hash<unqlang::ast_expression_literal> {
+	size_t operator()(const unqlang::ast_expression_literal& lit) const noexcept {
 		size_t h1 = std::hash<int>()(static_cast<int>(lit.type));
 		size_t h2 = 0;
 		switch (lit.type) {
-			case compiler::ast_expression_literal::type_t::Integer:
+			case unqlang::ast_expression_literal::type_t::Integer:
 				h2 = std::hash<int>()(std::get<int>(lit.value));
 				break;
-			case compiler::ast_expression_literal::type_t::String:
+			case unqlang::ast_expression_literal::type_t::String:
 				h2 = std::hash<std::string>()(std::get<std::string>(lit.value));
 				break;
-			case compiler::ast_expression_literal::type_t::Char:
+			case unqlang::ast_expression_literal::type_t::Char:
 				h2 = std::hash<char>()(std::get<char>(lit.value));
 				break;
-			case compiler::ast_expression_literal::type_t::Boolean:
+			case unqlang::ast_expression_literal::type_t::Boolean:
 				h2 = std::hash<bool>()(std::get<bool>(lit.value));
 				break;
-			case compiler::ast_expression_literal::type_t::Null:
+			case unqlang::ast_expression_literal::type_t::Null:
 				h2 = 0; // No additional data
 				break;
 		}

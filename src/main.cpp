@@ -79,50 +79,50 @@ int main(int n, int d, int e) {
 )";
 	std::chrono::high_resolution_clock::time_point start_time = std::chrono::high_resolution_clock::now();
 	std::cout << "Source Code:\n" << source_code << std::endl;
-	auto tokens = compiler::run_lexer(source_code);
-	std::vector<compiler::lexer_token> filtered_tokens;
+	auto tokens = unqlang::run_lexer(source_code);
+	std::vector<unqlang::lexer_token> filtered_tokens;
 	filtered_tokens.reserve(tokens.size());
 	for (const auto& token : tokens) {
-		if (token.type != compiler::lexer_token::type_t::Comment) {
+		if (token.type != unqlang::lexer_token::type_t::Comment) {
 			filtered_tokens.push_back(token);
 		}
 	}
-	compiler::ast_program program;
+	unqlang::ast_program program;
 	try {
-		program = compiler::parse_ast_program(filtered_tokens);
+		program = unqlang::parse_ast_program(filtered_tokens);
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error parsing AST: " << e.what() << std::endl;
 		return 1;
 	}
 	program.print();
-	compiler::interpreter::ast_interpreter interpreter;
+	unqlang::interpreter::ast_interpreter interpreter;
 
 	// Register external functions
 	// puts(char*): void
 	// puti(int): void
 	std::vector<std::string> output_buffer; {
-		interpreter.register_external_function(compiler::interpreter::external_function{
+		interpreter.register_external_function(unqlang::interpreter::external_function{
 			"puts",
-			std::make_shared<compiler::analysis::types::type_node>(compiler::analysis::types::primitive_type::VOID),
+			std::make_shared<unqlang::analysis::types::type_node>(unqlang::analysis::types::primitive_type::VOID),
 			{
-				std::make_shared<compiler::analysis::types::type_node>(
-					compiler::analysis::types::pointer_type{
-						compiler::analysis::types::primitive_type::CHAR
+				std::make_shared<unqlang::analysis::types::type_node>(
+					unqlang::analysis::types::pointer_type{
+						unqlang::analysis::types::primitive_type::CHAR
 					})
 			},
-			[&output_buffer](const std::vector<compiler::interpreter::value_t>& args,
-			compiler::interpreter::ast_interpreter& interpreter) -> compiler::interpreter::value_t {
+			[&output_buffer](const std::vector<unqlang::interpreter::value_t>& args,
+			unqlang::interpreter::ast_interpreter& interpreter) -> unqlang::interpreter::value_t {
 				if (args.size() != 1) {
 					throw std::runtime_error("puts expects 1 argument");
 				}
 				const auto& str_value = args[0];
-				if (str_value.type->kind != compiler::analysis::types::type_node::kind_t::POINTER ||
-					std::get<compiler::analysis::types::pointer_type>(str_value.type->value).pointee_type->kind !=
-					compiler::analysis::types::type_node::kind_t::PRIMITIVE ||
-					std::get<compiler::analysis::types::primitive_type>(
-						std::get<compiler::analysis::types::pointer_type>(str_value.type->value)
-						.pointee_type->value) != compiler::analysis::types::primitive_type::CHAR) {
+				if (str_value.type->kind != unqlang::analysis::types::type_node::kind_t::POINTER ||
+					std::get<unqlang::analysis::types::pointer_type>(str_value.type->value).pointee_type->kind !=
+					unqlang::analysis::types::type_node::kind_t::PRIMITIVE ||
+					std::get<unqlang::analysis::types::primitive_type>(
+						std::get<unqlang::analysis::types::pointer_type>(str_value.type->value)
+						.pointee_type->value) != unqlang::analysis::types::primitive_type::CHAR) {
 					throw std::runtime_error("puts expects a char pointer");
 				}
 				uint32_t ptr = str_value.get_as<uint32_t>();
@@ -137,33 +137,33 @@ int main(int n, int d, int e) {
 					++ptr;
 				}
 				output_buffer.push_back(output);
-				return compiler::interpreter::value_t::l_value(
-					{compiler::analysis::types::primitive_type::VOID},
+				return unqlang::interpreter::value_t::l_value(
+					{unqlang::analysis::types::primitive_type::VOID},
 					interpreter);
 			}
 		});
 
-		interpreter.register_external_function(compiler::interpreter::external_function{
+		interpreter.register_external_function(unqlang::interpreter::external_function{
 			"puti",
-			std::make_shared<compiler::analysis::types::type_node>(compiler::analysis::types::primitive_type::VOID),
+			std::make_shared<unqlang::analysis::types::type_node>(unqlang::analysis::types::primitive_type::VOID),
 			{
-				std::make_shared<compiler::analysis::types::type_node>(compiler::analysis::types::primitive_type::INT)
+				std::make_shared<unqlang::analysis::types::type_node>(unqlang::analysis::types::primitive_type::INT)
 			},
-			[&output_buffer](const std::vector<compiler::interpreter::value_t>& args,
-			compiler::interpreter::ast_interpreter& interpreter) -> compiler::interpreter::value_t {
+			[&output_buffer](const std::vector<unqlang::interpreter::value_t>& args,
+			unqlang::interpreter::ast_interpreter& interpreter) -> unqlang::interpreter::value_t {
 				if (args.size() != 1) {
 					throw std::runtime_error("puti expects 1 argument");
 				}
 				const auto& int_value = args[0];
-				if (int_value.type->kind != compiler::analysis::types::type_node::kind_t::PRIMITIVE ||
-					std::get<compiler::analysis::types::primitive_type>(int_value.type->value) !=
-					compiler::analysis::types::primitive_type::INT) {
+				if (int_value.type->kind != unqlang::analysis::types::type_node::kind_t::PRIMITIVE ||
+					std::get<unqlang::analysis::types::primitive_type>(int_value.type->value) !=
+					unqlang::analysis::types::primitive_type::INT) {
 					throw std::runtime_error("puti expects an int");
 				}
 				int32_t value = int_value.get_as<int32_t>();
 				output_buffer.push_back(std::to_string(value));
-				return compiler::interpreter::value_t::l_value(
-					{compiler::analysis::types::primitive_type::VOID},
+				return unqlang::interpreter::value_t::l_value(
+					{unqlang::analysis::types::primitive_type::VOID},
 					interpreter);
 			}
 		});
@@ -183,11 +183,11 @@ int main(int n, int d, int e) {
 		std::cerr << "Error initializing literals: " << e.what() << std::endl;
 		return 1;
 	}
-	compiler::interpreter::value_t result;
+	unqlang::interpreter::value_t result;
 	try {
-		auto arg_n = compiler::interpreter::value_t::l_value<int32_t>(10, interpreter);
-		auto arg_d = compiler::interpreter::value_t::l_value<int32_t>(1, interpreter);
-		auto arg_e = compiler::interpreter::value_t::l_value<int32_t>(3, interpreter);
+		auto arg_n = unqlang::interpreter::value_t::l_value<int32_t>(10, interpreter);
+		auto arg_d = unqlang::interpreter::value_t::l_value<int32_t>(1, interpreter);
+		auto arg_e = unqlang::interpreter::value_t::l_value<int32_t>(3, interpreter);
 		result = interpreter.execute_function("main", {arg_n, arg_d, arg_e});
 	}
 	catch (const std::exception& e) {

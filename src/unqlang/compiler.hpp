@@ -4,7 +4,7 @@
 
 #include "ast.hpp"
 
-namespace compiler {
+namespace unqlang {
 	typedef uint16_t data_type_size_t;
 	typedef data_type_size_t data_type_offset_t;
 	typedef uint16_t program_reference_t;

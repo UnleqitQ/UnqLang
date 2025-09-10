@@ -1,6 +1,6 @@
 #include "compiler.hpp"
 
-namespace compiler {
+namespace unqlang {
 	data_type_size_t Compiler::deduce_type_size(const std::shared_ptr<ast_type_node>& type) const {
 		switch (type->type) {
 			case ast_type_node::type_t::Void:

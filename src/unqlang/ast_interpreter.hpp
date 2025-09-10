@@ -11,7 +11,7 @@
 #include "ast_helpers.hpp"
 #include "analysis/types.hpp"
 
-namespace compiler::interpreter {
+namespace unqlang::interpreter {
 	class ast_interpreter;
 	typedef uint32_t pointer_t; // 32-bit pointer
 	struct memory_t {

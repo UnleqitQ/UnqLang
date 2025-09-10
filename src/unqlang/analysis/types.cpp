@@ -2,7 +2,7 @@
 
 #include <unordered_set>
 
-namespace compiler::analysis::types {
+namespace unqlang::analysis::types {
 	void type_system::validate_type(const type_node& type, bool allow_incomplete) const {
 		if (std::holds_alternative<std::monostate>(type.value)) {
 			if (allow_incomplete) {
@@ -320,7 +320,7 @@ namespace compiler::analysis::types {
 				throw std::logic_error("Unknown type kind");
 		}
 	}
-	type_node type_system::from_ast(const compiler::ast_type_node& ast_type) {
+	type_node type_system::from_ast(const unqlang::ast_type_node& ast_type) {
 		switch (ast_type.type) {
 			case ast_type_node::type_t::Char:
 				return type_node(primitive_type::CHAR);

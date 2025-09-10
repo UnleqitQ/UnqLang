@@ -10,7 +10,7 @@
 #include "types.hpp"
 #include "../ast.hpp"
 
-namespace compiler::analysis::types {
+namespace unqlang::analysis::types {
 	struct type_node;
 	enum class primitive_type {
 		VOID,
@@ -289,6 +289,6 @@ namespace compiler::analysis::types {
 
 		bool is_equivalent(const type_node& a, const type_node& b, compare_options options = compare_options()) const;
 
-		static type_node from_ast(const compiler::ast_type_node& ast_type);
+		static type_node from_ast(const unqlang::ast_type_node& ast_type);
 	};
 } // namespace compiler::analysis::types

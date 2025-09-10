@@ -2,7 +2,7 @@
 
 #include <ranges>
 
-namespace compiler::interpreter {
+namespace unqlang::interpreter {
 	const analysis::types::type_node value_t::void_type = analysis::types::type_node(
 		analysis::types::primitive_type::VOID);
 	const std::shared_ptr<analysis::types::type_node> value_t::void_type_ptr = std::make_shared<
