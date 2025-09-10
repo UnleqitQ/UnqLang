@@ -14,6 +14,7 @@ namespace machine {
 			case register_id::edi: return "edi";
 			case register_id::esp: return "esp";
 			case register_id::ebp: return "ebp";
+			case register_id::eip: return "eip";
 			case register_id::flags: return "flags";
 			default: throw std::runtime_error("Invalid register id");
 		}
@@ -30,6 +31,7 @@ namespace machine {
 					case register_id::edi: return "edi";
 					case register_id::esp: return "esp";
 					case register_id::ebp: return "ebp";
+					case register_id::eip: return "eip";
 					case register_id::flags: return "flags";
 					default: throw std::runtime_error("Invalid register id");
 				}
@@ -71,6 +73,7 @@ namespace machine {
 		if (str == "edi") return register_t(register_id::edi, register_access::dword);
 		if (str == "esp") return register_t(register_id::esp, register_access::dword);
 		if (str == "ebp") return register_t(register_id::ebp, register_access::dword);
+		if (str == "eip") return register_t(register_id::eip, register_access::dword);
 		if (str == "flags") return register_t(register_id::flags, register_access::dword);
 		if (str == "ax") return register_t(register_id::eax, register_access::word);
 		if (str == "bx") return register_t(register_id::ebx, register_access::word);

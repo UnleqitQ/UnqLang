@@ -17,7 +17,8 @@ namespace machine {
 		edi = 5,
 		esp = 6,
 		ebp = 7,
-		flags = 8
+		eip = 8,
+		flags = 9
 	};
 	inline std::string to_string(register_id id);
 	inline std::ostream& operator<<(std::ostream& os, register_id id) {
@@ -72,6 +73,7 @@ namespace machine {
 				uint32_t edi;
 				uint32_t esp;
 				uint32_t ebp;
+				uint32_t eip;
 				union {
 					uint32_t value;
 					struct {
