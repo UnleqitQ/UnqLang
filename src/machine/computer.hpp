@@ -1,5 +1,8 @@
 #pragma once
 
+#define UNSAFE
+
+#include "assembler.hpp"
 #include "instruction.hpp"
 #include "ram.hpp"
 #include "register.hpp"
@@ -14,8 +17,6 @@ namespace machine {
 	class computer {
 		ram m_ram;
 		register_file m_registers;
-		uint32_t m_instruction_pointer = 0;
-		program_t m_program;
 		execution_state_t m_state = execution_state_t::HALTED;
 		bool m_verbose = false;
 		std::string m_error_message;
@@ -29,9 +30,14 @@ namespace machine {
 		computer(const ram& r, const register_file& reg)
 			: m_ram(r), m_registers(reg) {
 		}
-		void load_program(const program_t& program) {
-			m_program = program;
-			m_instruction_pointer = 0;
+		void load_program(const program_t& program, uint32_t start_address = 0) {
+			if (program.size() + start_address > ram::SIZE) {
+				throw std::runtime_error("Program size exceeds RAM size");
+			}
+			assembler::bytecode_t bytecode;
+			assembler::assemble(program, bytecode);
+			std::copy(bytecode.begin(), bytecode.end(), m_ram.data.begin() + start_address);
+			m_registers.eip = start_address;
 			m_state = execution_state_t::RUNNING;
 		}
 		void step(); // Execute a single instruction
@@ -60,13 +66,10 @@ namespace machine {
 			return m_registers;
 		}
 		uint32_t get_instruction_pointer() const {
-			return m_instruction_pointer;
+			return m_registers.eip;
 		}
 		void set_instruction_pointer(uint32_t ip) {
-			m_instruction_pointer = ip;
-		}
-		const program_t& get_program() const {
-			return m_program;
+			m_registers.eip = ip;
 		}
 		execution_state_t get_state() const {
 			return m_state;
@@ -85,11 +88,23 @@ namespace machine {
 			return m_state == execution_state_t::ERROR;
 		}
 
+		instruction_t fetch_current_instruction(uint32_t& out_next_eip) const {
+			instruction_t instr;
+			size_t pc = m_registers.eip;
+#ifdef UNSAFE
+			assembler::disassemble_unsafe(m_ram.data, instr, pc);
+#else
+			assembler::disassemble(m_ram.data, instr, pc);
+#endif
+			out_next_eip = static_cast<uint32_t>(pc);
+			return instr;
+		}
+
 	private:
 		uint32_t retrieve_memory_address(const memory_operand& mem_op) const;
 		uint32_t retrieve_operand_value(const operand_arg& op) const;
 		uint32_t retrieve_result_value(const result_arg& res) const;
 		void set_result_value(const result_arg& res, uint32_t value);
-		void execute_instruction(const instruction_t& instr);
+		void execute_instruction(const instruction_t& instr, uint32_t next_ip);
 	};
 } // machine

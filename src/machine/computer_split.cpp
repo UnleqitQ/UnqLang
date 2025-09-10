@@ -1,7 +1,7 @@
 #include "computer_split.hpp"
 
 namespace machine {
-	data_size_t get_size_from_access(register_access access) {
+	data_size_t split_get_size_from_access(register_access access) {
 		switch (access) {
 			case register_access::dword:
 				return data_size_t::DWORD;
@@ -15,7 +15,7 @@ namespace machine {
 		}
 	}
 
-	uint8_t get_size_in_bytes(data_size_t size) {
+	uint8_t split_get_size_in_bytes(data_size_t size) {
 		switch (size) {
 			case data_size_t::BYTE:
 				return 1;
@@ -28,14 +28,14 @@ namespace machine {
 		}
 	}
 
-	bool get_parity(uint8_t value) {
+	bool split_get_parity(uint8_t value) {
 		value ^= value >> 4;
 		value ^= value >> 2;
 		value ^= value >> 1;
 		return (value & 1) == 0;
 	}
 
-	bool check_jump_condition(operation op, const register_file& regs) {
+	bool split_check_jump_condition(operation op, const register_file& regs) {
 		switch (op) {
 			case operation::JMP:
 				return true;
@@ -82,8 +82,8 @@ namespace machine {
 		}
 	}
 
-	void push_stack(register_file& regs, ram& memory, uint32_t value, data_size_t size) {
-		regs.esp -= get_size_in_bytes(size);
+	void split_push_stack(register_file& regs, ram& memory, uint32_t value, data_size_t size) {
+		regs.esp -= split_get_size_in_bytes(size);
 		switch (size) {
 			case data_size_t::BYTE:
 				memory.write8(regs.esp, static_cast<uint8_t>(value & 0xFF));
@@ -98,7 +98,7 @@ namespace machine {
 				throw std::runtime_error("Invalid data size for stack push");
 		}
 	}
-	uint32_t pop_stack(register_file& regs, ram& memory, data_size_t size) {
+	uint32_t split_pop_stack(register_file& regs, ram& memory, data_size_t size) {
 		uint32_t value;
 		switch (size) {
 			case data_size_t::BYTE:
@@ -113,11 +113,11 @@ namespace machine {
 			default:
 				throw std::runtime_error("Invalid data size for stack pop");
 		}
-		regs.esp += get_size_in_bytes(size);
+		regs.esp += split_get_size_in_bytes(size);
 		return value;
 	}
 
-	uint32_t handle_add(bool with_carry, uint32_t val1, uint32_t val2, data_size_t size, register_file& regs) {
+	uint32_t split_handle_add(bool with_carry, uint32_t val1, uint32_t val2, data_size_t size, register_file& regs) {
 		uint64_t carry_in = with_carry && regs.flags.cf ? 1 : 0;
 		uint64_t result = static_cast<uint64_t>(val1) + static_cast<uint64_t>(val2) + carry_in;
 		uint32_t mask;
@@ -137,19 +137,19 @@ namespace machine {
 		uint32_t res32 = static_cast<uint32_t>(result & mask);
 
 		// Set flags
-		regs.flags.cf = (result >> (get_size_in_bytes(size) * 8)) != 0; // Carry flag
+		regs.flags.cf = (result >> (split_get_size_in_bytes(size) * 8)) != 0; // Carry flag
 		regs.flags.zf = (res32 & mask) == 0; // Zero flag
-		regs.flags.sf = (res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
+		regs.flags.sf = (res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
 		// Overflow flag (set if the sign of the result is incorrect for signed addition)
-		regs.flags.of = ((val1 ^ res32) & (val2 ^ res32) & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0;
+		regs.flags.of = ((val1 ^ res32) & (val2 ^ res32) & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0;
 		// Auxiliary flag (set if there is a carry from bit 3 to bit 4)
 		regs.flags.af = ((val1 & 0xF) + (val2 & 0xF) + carry_in) > 0xF;
 		// Parity flag (set if the number of set bits in the least significant byte is even)
-		regs.flags.pf = get_parity(res32 & 0xFF);
+		regs.flags.pf = split_get_parity(res32 & 0xFF);
 
 		return res32;
 	}
-	uint32_t handle_sub(bool with_borrow, uint32_t val1, uint32_t val2, data_size_t size, register_file& regs) {
+	uint32_t split_handle_sub(bool with_borrow, uint32_t val1, uint32_t val2, data_size_t size, register_file& regs) {
 		uint64_t borrow_in = with_borrow && regs.flags.cf ? 1 : 0;
 		uint64_t result = static_cast<uint64_t>(val1) - static_cast<uint64_t>(val2) - borrow_in;
 		uint32_t mask;
@@ -168,19 +168,19 @@ namespace machine {
 		}
 		uint32_t res32 = static_cast<uint32_t>(result & mask);
 		// Set flags
-		regs.flags.cf = (result >> (get_size_in_bytes(size) * 8)) != 0; // Carry flag (borrow)
+		regs.flags.cf = (result >> (split_get_size_in_bytes(size) * 8)) != 0; // Carry flag (borrow)
 		regs.flags.zf = (res32 & mask) == 0; // Zero flag
-		regs.flags.sf = (res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
+		regs.flags.sf = (res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
 		// Overflow flag (set if the sign of the result is incorrect for signed subtraction)
-		regs.flags.of = ((val1 ^ val2) & (val1 ^ res32) & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0;
+		regs.flags.of = ((val1 ^ val2) & (val1 ^ res32) & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0;
 		// Auxiliary flag (set if there is a borrow from bit 4 to bit 3)
 		regs.flags.af = ((val1 & 0xF) < (val2 & 0xF) + borrow_in);
 		// Parity flag (set if the number of set bits in the least significant byte is even)
-		regs.flags.pf = get_parity(res32 & 0xFF);
+		regs.flags.pf = split_get_parity(res32 & 0xFF);
 
 		return res32;
 	}
-	uint32_t handle_mul(bool is_signed, uint32_t val1, uint32_t val2, data_size_t size, register_file& regs) {
+	uint32_t split_handle_mul(bool is_signed, uint32_t val1, uint32_t val2, data_size_t size, register_file& regs) {
 		uint64_t result;
 		if (is_signed) {
 			int64_t s_val1 = static_cast<int32_t>(val1);
@@ -206,17 +206,17 @@ namespace machine {
 		}
 		uint32_t res32 = static_cast<uint32_t>(result & mask);
 		// Set flags
-		regs.flags.cf = (result >> (get_size_in_bytes(size) * 8)) != 0; // Carry flag
+		regs.flags.cf = (result >> (split_get_size_in_bytes(size) * 8)) != 0; // Carry flag
 		regs.flags.of = regs.flags.cf; // Overflow flag is the same as carry flag
 		regs.flags.zf = (res32 & mask) == 0; // Zero flag
-		regs.flags.sf = (res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
+		regs.flags.sf = (res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
 		// Parity flag (set if the number of set bits in the least significant byte is even)
-		regs.flags.pf = get_parity(res32 & 0xFF);
+		regs.flags.pf = split_get_parity(res32 & 0xFF);
 		// AF is undefined for MUL
 
 		return res32;
 	}
-	uint32_t handle_div(bool is_signed, uint32_t dividend, uint32_t divisor, data_size_t size, register_file& regs) {
+	uint32_t split_handle_div(bool is_signed, uint32_t dividend, uint32_t divisor, data_size_t size, register_file& regs) {
 		if (divisor == 0) {
 			throw std::runtime_error("Division by zero");
 		}
@@ -251,14 +251,14 @@ namespace machine {
 		regs.flags.cf = false; // Carry flag is cleared
 		regs.flags.of = false; // Overflow flag is cleared
 		regs.flags.zf = (res32 & mask) == 0; // Zero flag
-		regs.flags.sf = (res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
+		regs.flags.sf = (res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
 		// Parity flag (set if the number of set bits in the least significant byte is even)
-		regs.flags.pf = get_parity(res32 & 0xFF);
+		regs.flags.pf = split_get_parity(res32 & 0xFF);
 		// AF is undefined for DIV
 
 		return res32;
 	}
-	uint32_t handle_mod(bool is_signed, uint32_t dividend, uint32_t divisor, data_size_t size, register_file& regs) {
+	uint32_t split_handle_mod(bool is_signed, uint32_t dividend, uint32_t divisor, data_size_t size, register_file& regs) {
 		if (divisor == 0) {
 			throw std::runtime_error("Division by zero");
 		}
@@ -290,14 +290,14 @@ namespace machine {
 		regs.flags.cf = false; // Carry flag is cleared
 		regs.flags.of = false; // Overflow flag is cleared
 		regs.flags.zf = (res32 & mask) == 0; // Zero flag
-		regs.flags.sf = (res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
+		regs.flags.sf = (res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
 		// Parity flag (set if the number of set bits in the least significant byte is even)
-		regs.flags.pf = get_parity(res32 & 0xFF);
+		regs.flags.pf = split_get_parity(res32 & 0xFF);
 		// AF is undefined for MOD
 
 		return res32;
 	}
-	uint32_t handle_logical(operation op, uint32_t val1, uint32_t val2, data_size_t size, register_file& regs) {
+	uint32_t split_handle_logical(operation op, uint32_t val1, uint32_t val2, data_size_t size, register_file& regs) {
 		uint32_t result;
 		switch (op) {
 			case operation::AND:
@@ -331,14 +331,14 @@ namespace machine {
 		regs.flags.cf = false; // Carry flag is cleared
 		regs.flags.of = false; // Overflow flag is cleared
 		regs.flags.zf = (res32 & mask) == 0; // Zero flag
-		regs.flags.sf = (res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
+		regs.flags.sf = (res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
 		// Parity flag (set if the number of set bits in the least significant byte is even)
-		regs.flags.pf = get_parity(res32 & 0xFF);
+		regs.flags.pf = split_get_parity(res32 & 0xFF);
 		// AF is undefined for logical operations
 
 		return res32;
 	}
-	uint32_t handle_shift(operation op, uint32_t value, uint32_t count, data_size_t size, register_file& regs) {
+	uint32_t split_handle_shift(operation op, uint32_t value, uint32_t count, data_size_t size, register_file& regs) {
 		if (count == 0) {
 			return value; // No change
 		}
@@ -346,7 +346,7 @@ namespace machine {
 		switch (op) {
 			case operation::SHL:
 				result = value << count;
-				regs.flags.cf = (value >> (get_size_in_bytes(size) * 8 - count)) & 1; // Last bit shifted out
+				regs.flags.cf = (value >> (split_get_size_in_bytes(size) * 8 - count)) & 1; // Last bit shifted out
 				break;
 			case operation::SHR:
 				result = value >> count;
@@ -378,15 +378,15 @@ namespace machine {
 		uint32_t res32 = result & mask;
 		// Set flags
 		regs.flags.zf = (res32 & mask) == 0; // Zero flag
-		regs.flags.sf = (res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
+		regs.flags.sf = (res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
 		// Parity flag (set if the number of set bits in the least significant byte is even)
-		regs.flags.pf = get_parity(res32 & 0xFF);
+		regs.flags.pf = split_get_parity(res32 & 0xFF);
 		// OF is affected only for single-bit shifts
 		if (count == 1) {
 			switch (op) {
 				case operation::SHL:
-					regs.flags.of = ((res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0) != ((value & (1 << ((
-						get_size_in_bytes(size) * 8) - 1))) != 0);
+					regs.flags.of = ((res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0) != ((value & (1 << ((
+						split_get_size_in_bytes(size) * 8) - 1))) != 0);
 					break;
 				case operation::SHR:
 				case operation::SAR:
@@ -399,7 +399,7 @@ namespace machine {
 		// AF is undefined for shift operations
 		return res32;
 	}
-	uint32_t handle_rotate(operation op, uint32_t value, uint32_t count, data_size_t size, register_file& regs) {
+	uint32_t split_handle_rotate(operation op, uint32_t value, uint32_t count, data_size_t size, register_file& regs) {
 		if (count == 0) {
 			return value; // No change
 		}
@@ -417,16 +417,16 @@ namespace machine {
 			default:
 				throw std::runtime_error("Invalid data size");
 		}
-		count %= (get_size_in_bytes(size) * 8); // Normalize count
+		count %= (split_get_size_in_bytes(size) * 8); // Normalize count
 		uint32_t result;
 		switch (op) {
 			case operation::ROL:
-				result = ((value << count) | (value >> ((get_size_in_bytes(size) * 8) - count))) & mask;
+				result = ((value << count) | (value >> ((split_get_size_in_bytes(size) * 8) - count))) & mask;
 				regs.flags.cf = (result & 1) != 0; // Last bit rotated out
 				break;
 			case operation::ROR:
-				result = ((value >> count) | (value << ((get_size_in_bytes(size) * 8) - count))) & mask;
-				regs.flags.cf = (result & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0; // Last bit rotated out
+				result = ((value >> count) | (value << ((split_get_size_in_bytes(size) * 8) - count))) & mask;
+				regs.flags.cf = (result & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0; // Last bit rotated out
 				break;
 			default:
 				throw std::runtime_error("Invalid rotate operation");
@@ -434,17 +434,17 @@ namespace machine {
 		uint32_t res32 = result & mask;
 		// Set flags
 		regs.flags.zf = (res32 & mask) == 0; // Zero flag
-		regs.flags.sf = (res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
+		regs.flags.sf = (res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0; // Sign flag
 		// Parity flag (set if the number of set bits in the least significant byte is even)
-		regs.flags.pf = get_parity(res32 & 0xFF);
+		regs.flags.pf = split_get_parity(res32 & 0xFF);
 		// OF is affected only for single-bit rotates
 		if (count == 1) {
 			switch (op) {
 				case operation::ROL:
-					regs.flags.of = ((res32 & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0) != regs.flags.cf;
+					regs.flags.of = ((res32 & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0) != regs.flags.cf;
 					break;
 				case operation::ROR:
-					regs.flags.of = ((value & 1) != 0) != ((value & (1 << ((get_size_in_bytes(size) * 8) - 1))) != 0);
+					regs.flags.of = ((value & 1) != 0) != ((value & (1 << ((split_get_size_in_bytes(size) * 8) - 1))) != 0);
 					break;
 				default:
 					break;
@@ -454,10 +454,10 @@ namespace machine {
 		return res32;
 	}
 
-	data_size_t get_result_size(const result_arg& res) {
+	data_size_t split_get_result_size(const result_arg& res) {
 		switch (res.type) {
 			case result_arg::type_t::REGISTER:
-				return get_size_from_access(res.value.reg.access);
+				return split_get_size_from_access(res.value.reg.access);
 			case result_arg::type_t::MEMORY:
 				return res.value.mem.size;
 			default:
@@ -576,8 +576,8 @@ namespace machine {
 				const auto args = instr.args.args_1r;
 				uint32_t val1 = retrieve_result_value(args.result);
 				uint32_t val2 = retrieve_operand_value(args.operands[0]);
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_add(instr.op == operation::ADC, val1, val2, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_add(instr.op == operation::ADC, val1, val2, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
@@ -586,8 +586,8 @@ namespace machine {
 				const auto args = instr.args.args_1r;
 				uint32_t val1 = retrieve_result_value(args.result);
 				uint32_t val2 = retrieve_operand_value(args.operands[0]);
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_sub(instr.op == operation::SBB, val1, val2, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_sub(instr.op == operation::SBB, val1, val2, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
@@ -596,8 +596,8 @@ namespace machine {
 				const auto args = instr.args.args_1r;
 				int32_t val1 = retrieve_result_value(args.result);
 				int32_t val2 = retrieve_operand_value(args.operands[0]);
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_mul(instr.op == operation::IMUL, val1, val2, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_mul(instr.op == operation::IMUL, val1, val2, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
@@ -606,8 +606,8 @@ namespace machine {
 				const auto args = instr.args.args_1r;
 				int32_t dividend = retrieve_result_value(args.result);
 				int32_t divisor = retrieve_operand_value(args.operands[0]);
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_div(instr.op == operation::IDIV, dividend, divisor, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_div(instr.op == operation::IDIV, dividend, divisor, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
@@ -616,8 +616,8 @@ namespace machine {
 				const auto args = instr.args.args_1r;
 				int32_t dividend = retrieve_result_value(args.result);
 				int32_t divisor = retrieve_operand_value(args.operands[0]);
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_mod(instr.op == operation::IMOD, dividend, divisor, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_mod(instr.op == operation::IMOD, dividend, divisor, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
@@ -626,7 +626,7 @@ namespace machine {
 				uint32_t value = retrieve_operand_value(args.operands[0]);
 				data_size_t size;
 				if (args.operands[0].type == operand_arg::type_t::REGISTER) {
-					size = get_size_from_access(args.operands[0].value.reg.access);
+					size = split_get_size_from_access(args.operands[0].value.reg.access);
 				}
 				else if (args.operands[0].type == operand_arg::type_t::MEMORY) {
 					size = args.operands[0].value.mem.size;
@@ -634,13 +634,13 @@ namespace machine {
 				else {
 					size = data_size_t::DWORD; // Immediate values are treated as DWORD
 				}
-				push_stack(m_registers, m_ram, value, size);
+				split_push_stack(m_registers, m_ram, value, size);
 				break;
 			}
 			case operation::POP: {
 				const auto args = instr.args.args_0r;
-				data_size_t size = get_result_size(args.result);
-				uint32_t value = pop_stack(m_registers, m_ram, size);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t value = split_pop_stack(m_registers, m_ram, size);
 				set_result_value(args.result, value);
 				break;
 			}
@@ -653,24 +653,24 @@ namespace machine {
 			case operation::INC: {
 				const auto args = instr.args.args_0r;
 				uint32_t val = retrieve_result_value(args.result);
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_add(false, val, 1, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_add(false, val, 1, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
 			case operation::DEC: {
 				const auto args = instr.args.args_0r;
 				uint32_t val = retrieve_result_value(args.result);
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_sub(false, val, 1, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_sub(false, val, 1, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
 			case operation::NEG: {
 				const auto args = instr.args.args_0r;
 				uint32_t val = retrieve_result_value(args.result);
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_sub(false, 0, val, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_sub(false, 0, val, size, m_registers);
 				m_registers.flags.cf = val != 0; // Set CF if operand was non-zero
 				set_result_value(args.result, result);
 				break;
@@ -684,23 +684,23 @@ namespace machine {
 					operand_arg::type_t::IMMEDIATE) {
 					size = std::min(
 						(args.operands[0].type == operand_arg::type_t::REGISTER)
-						? get_size_from_access(args.operands[0].value.reg.access)
+						? split_get_size_from_access(args.operands[0].value.reg.access)
 						: args.operands[0].value.mem.size,
 						(args.operands[1].type == operand_arg::type_t::REGISTER)
-						? get_size_from_access(args.operands[1].value.reg.access)
+						? split_get_size_from_access(args.operands[1].value.reg.access)
 						: args.operands[1].value.mem.size);
 				}
 				else if (args.operands[0].type != operand_arg::type_t::IMMEDIATE) {
 					size = (args.operands[0].type == operand_arg::type_t::REGISTER)
-						? get_size_from_access(args.operands[0].value.reg.access)
+						? split_get_size_from_access(args.operands[0].value.reg.access)
 						: args.operands[0].value.mem.size;
 				}
 				else if (args.operands[1].type != operand_arg::type_t::IMMEDIATE) {
 					size = (args.operands[1].type == operand_arg::type_t::REGISTER)
-						? get_size_from_access(args.operands[1].value.reg.access)
+						? split_get_size_from_access(args.operands[1].value.reg.access)
 						: args.operands[1].value.mem.size;
 				}
-				handle_sub(false, val1, val2, size, m_registers);
+				split_handle_sub(false, val1, val2, size, m_registers);
 				// Result is not stored
 				break;
 			}
@@ -710,15 +710,15 @@ namespace machine {
 				const auto args = instr.args.args_1r;
 				uint32_t val1 = retrieve_result_value(args.result);
 				uint32_t val2 = retrieve_operand_value(args.operands[0]);
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_logical(instr.op, val1, val2, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_logical(instr.op, val1, val2, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
 			case operation::NOT: {
 				const auto args = instr.args.args_0r;
 				uint32_t val = retrieve_result_value(args.result);
-				data_size_t size = get_result_size(args.result);
+				data_size_t size = split_get_result_size(args.result);
 				uint32_t mask;
 				switch (size) {
 					case data_size_t::BYTE:
@@ -744,8 +744,8 @@ namespace machine {
 				const auto args = instr.args.args_1r;
 				uint32_t val = retrieve_result_value(args.result);
 				uint32_t count = retrieve_operand_value(args.operands[0]) & 0x1F; // Only lower 5 bits are used
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_shift(instr.op, val, count, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_shift(instr.op, val, count, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
@@ -756,8 +756,8 @@ namespace machine {
 				const auto args = instr.args.args_1r;
 				uint32_t val = retrieve_result_value(args.result);
 				uint32_t count = retrieve_operand_value(args.operands[0]) & 0x1F; // Only lower 5 bits are used
-				data_size_t size = get_result_size(args.result);
-				uint32_t result = handle_rotate(instr.op, val, count, size, m_registers);
+				data_size_t size = split_get_result_size(args.result);
+				uint32_t result = split_handle_rotate(instr.op, val, count, size, m_registers);
 				set_result_value(args.result, result);
 				break;
 			}
@@ -770,23 +770,23 @@ namespace machine {
 					operand_arg::type_t::IMMEDIATE) {
 					size = std::min(
 						(args.operands[0].type == operand_arg::type_t::REGISTER)
-						? get_size_from_access(args.operands[0].value.reg.access)
+						? split_get_size_from_access(args.operands[0].value.reg.access)
 						: args.operands[0].value.mem.size,
 						(args.operands[1].type == operand_arg::type_t::REGISTER)
-						? get_size_from_access(args.operands[1].value.reg.access)
+						? split_get_size_from_access(args.operands[1].value.reg.access)
 						: args.operands[1].value.mem.size);
 				}
 				else if (args.operands[0].type != operand_arg::type_t::IMMEDIATE) {
 					size = (args.operands[0].type == operand_arg::type_t::REGISTER)
-						? get_size_from_access(args.operands[0].value.reg.access)
+						? split_get_size_from_access(args.operands[0].value.reg.access)
 						: args.operands[0].value.mem.size;
 				}
 				else if (args.operands[1].type != operand_arg::type_t::IMMEDIATE) {
 					size = (args.operands[1].type == operand_arg::type_t::REGISTER)
-						? get_size_from_access(args.operands[1].value.reg.access)
+						? split_get_size_from_access(args.operands[1].value.reg.access)
 						: args.operands[1].value.mem.size;
 				}
-				handle_logical(operation::AND, val1, val2, size, m_registers);
+				split_handle_logical(operation::AND, val1, val2, size, m_registers);
 				// Result is not stored
 				break;
 			}
@@ -809,7 +809,7 @@ namespace machine {
 			case operation::JAE:
 			case operation::JB:
 			case operation::JBE: {
-				bool condition_met = check_jump_condition(instr.op, m_registers);
+				bool condition_met = split_check_jump_condition(instr.op, m_registers);
 				if (!condition_met) break;
 				const auto args = instr.args.args_1n;
 				uint32_t target = retrieve_operand_value(args.operands[0]);
@@ -821,47 +821,47 @@ namespace machine {
 				const auto args = instr.args.args_1n;
 				uint32_t target = retrieve_operand_value(args.operands[0]);
 				// Push return address onto stack
-				push_stack(m_registers, m_ram, m_instruction_pointer + 1, data_size_t::DWORD);
+				split_push_stack(m_registers, m_ram, m_instruction_pointer + 1, data_size_t::DWORD);
 				m_instruction_pointer = target;
 				jump_occurred = true;
 				break;
 			}
 			case operation::RET: {
 				// Pop return address from stack
-				uint32_t return_address = pop_stack(m_registers, m_ram, data_size_t::DWORD);
+				uint32_t return_address = split_pop_stack(m_registers, m_ram, data_size_t::DWORD);
 				m_instruction_pointer = return_address;
 				jump_occurred = true;
 				break;
 			}
 			case operation::PUSHA: {
 				uint32_t original_esp = m_registers.esp;
-				push_stack(m_registers, m_ram, m_registers.eax, data_size_t::DWORD);
-				push_stack(m_registers, m_ram, m_registers.ecx, data_size_t::DWORD);
-				push_stack(m_registers, m_ram, m_registers.edx, data_size_t::DWORD);
-				push_stack(m_registers, m_ram, m_registers.ebx, data_size_t::DWORD);
-				push_stack(m_registers, m_ram, original_esp, data_size_t::DWORD); // Push original ESP
-				push_stack(m_registers, m_ram, m_registers.ebp, data_size_t::DWORD);
-				push_stack(m_registers, m_ram, m_registers.esi, data_size_t::DWORD);
-				push_stack(m_registers, m_ram, m_registers.edi, data_size_t::DWORD);
+				split_push_stack(m_registers, m_ram, m_registers.eax, data_size_t::DWORD);
+				split_push_stack(m_registers, m_ram, m_registers.ecx, data_size_t::DWORD);
+				split_push_stack(m_registers, m_ram, m_registers.edx, data_size_t::DWORD);
+				split_push_stack(m_registers, m_ram, m_registers.ebx, data_size_t::DWORD);
+				split_push_stack(m_registers, m_ram, original_esp, data_size_t::DWORD); // Push original ESP
+				split_push_stack(m_registers, m_ram, m_registers.ebp, data_size_t::DWORD);
+				split_push_stack(m_registers, m_ram, m_registers.esi, data_size_t::DWORD);
+				split_push_stack(m_registers, m_ram, m_registers.edi, data_size_t::DWORD);
 				break;
 			}
 			case operation::POPA: {
-				m_registers.edi = pop_stack(m_registers, m_ram, data_size_t::DWORD);
-				m_registers.esi = pop_stack(m_registers, m_ram, data_size_t::DWORD);
-				m_registers.ebp = pop_stack(m_registers, m_ram, data_size_t::DWORD);
-				uint32_t discarded_esp = pop_stack(m_registers, m_ram, data_size_t::DWORD); // Discard original ESP
+				m_registers.edi = split_pop_stack(m_registers, m_ram, data_size_t::DWORD);
+				m_registers.esi = split_pop_stack(m_registers, m_ram, data_size_t::DWORD);
+				m_registers.ebp = split_pop_stack(m_registers, m_ram, data_size_t::DWORD);
+				uint32_t discarded_esp = split_pop_stack(m_registers, m_ram, data_size_t::DWORD); // Discard original ESP
 				(void) discarded_esp; // Avoid unused variable warning
-				m_registers.ebx = pop_stack(m_registers, m_ram, data_size_t::DWORD);
-				m_registers.edx = pop_stack(m_registers, m_ram, data_size_t::DWORD);
-				m_registers.ecx = pop_stack(m_registers, m_ram, data_size_t::DWORD);
-				m_registers.eax = pop_stack(m_registers, m_ram, data_size_t::DWORD);
+				m_registers.ebx = split_pop_stack(m_registers, m_ram, data_size_t::DWORD);
+				m_registers.edx = split_pop_stack(m_registers, m_ram, data_size_t::DWORD);
+				m_registers.ecx = split_pop_stack(m_registers, m_ram, data_size_t::DWORD);
+				m_registers.eax = split_pop_stack(m_registers, m_ram, data_size_t::DWORD);
 				break;
 			}
 			case operation::PUSHF:
-				push_stack(m_registers, m_ram, m_registers.flags.value, data_size_t::DWORD);
+				split_push_stack(m_registers, m_ram, m_registers.flags.value, data_size_t::DWORD);
 				break;
 			case operation::POPF: {
-				uint32_t flags_value = pop_stack(m_registers, m_ram, data_size_t::DWORD);
+				uint32_t flags_value = split_pop_stack(m_registers, m_ram, data_size_t::DWORD);
 				m_registers.flags.value = flags_value;
 				break;
 			}
@@ -890,7 +890,7 @@ namespace machine {
 		}
 	}
 
-	void print_registers(const register_file& regs) {
+	void split_print_registers(const register_file& regs) {
 		std::cout << std::format("EAX: 0x{:08X} ({}) , ", regs.eax, static_cast<int32_t>(regs.eax));
 		std::cout << std::format("EBX: 0x{:08X} ({}) , ", regs.ebx, static_cast<int32_t>(regs.ebx));
 		std::cout << std::format("ECX: 0x{:08X} ({}) , ", regs.ecx, static_cast<int32_t>(regs.ecx));
@@ -919,7 +919,7 @@ namespace machine {
 
 		if (m_verbose) {
 			std::cout << "IP: " << m_instruction_pointer << " | ";
-			print_registers(m_registers);
+			split_print_registers(m_registers);
 			std::cout << std::endl;
 			std::cout << "Executing: " << m_program[m_instruction_pointer] << std::endl;
 		}

@@ -559,7 +559,7 @@ namespace machine {
 				throw std::runtime_error("Invalid result type");
 		}
 	}
-	void computer::execute_instruction(const instruction_t& instr) {
+	void computer::execute_instruction(const instruction_t& instr, uint32_t next_ip) {
 		bool jump_occurred = false;
 		switch (instr.op) {
 			case operation::NOP:
@@ -813,7 +813,7 @@ namespace machine {
 				if (!condition_met) break;
 				const auto args = instr.args.args_1n;
 				uint32_t target = retrieve_operand_value(args.operands[0]);
-				m_instruction_pointer = target;
+				m_registers.eip = target;
 				jump_occurred = true;
 				break;
 			}
@@ -821,15 +821,15 @@ namespace machine {
 				const auto args = instr.args.args_1n;
 				uint32_t target = retrieve_operand_value(args.operands[0]);
 				// Push return address onto stack
-				push_stack(m_registers, m_ram, m_instruction_pointer + 1, data_size_t::DWORD);
-				m_instruction_pointer = target;
+				push_stack(m_registers, m_ram, next_ip, data_size_t::DWORD);
+				m_registers.eip = target;
 				jump_occurred = true;
 				break;
 			}
 			case operation::RET: {
 				// Pop return address from stack
 				uint32_t return_address = pop_stack(m_registers, m_ram, data_size_t::DWORD);
-				m_instruction_pointer = return_address;
+				m_registers.eip = return_address;
 				jump_occurred = true;
 				break;
 			}
@@ -886,7 +886,7 @@ namespace machine {
 			}
 		}
 		if (!jump_occurred) {
-			++m_instruction_pointer;
+			++m_registers.eip;
 		}
 	}
 
@@ -898,7 +898,8 @@ namespace machine {
 		std::cout << std::format("ESI: 0x{:08X} ({}) , ", regs.esi, static_cast<int32_t>(regs.esi));
 		std::cout << std::format("EDI: 0x{:08X} ({}) , ", regs.edi, static_cast<int32_t>(regs.edi));
 		std::cout << std::format("EBP: 0x{:08X} ({}) , ", regs.ebp, static_cast<int32_t>(regs.ebp));
-		std::cout << std::format("ESP: 0x{:08X} ({}) | ", regs.esp, static_cast<int32_t>(regs.esp));
+		std::cout << std::format("ESP: 0x{:08X} ({}) , ", regs.esp, static_cast<int32_t>(regs.esp));
+		std::cout << std::format("EIP: 0x{:08X} | ", regs.eip);
 		std::cout << std::format("FLAGS: [C={} O={} Z={} S={} P={} A={}] ",
 			regs.flags.cf ? 1 : 0,
 			regs.flags.of ? 1 : 0,
@@ -912,21 +913,21 @@ namespace machine {
 		if (m_state != execution_state_t::RUNNING) {
 			return;
 		}
-		if (m_instruction_pointer >= m_program.size()) {
+		if (m_registers.eip >= m_ram.SIZE) {
 			m_state = execution_state_t::HALTED;
 			return;
 		}
 
+		uint32_t next_ip = m_registers.eip;
+		auto instr = fetch_current_instruction(next_ip);
 		if (m_verbose) {
-			std::cout << "IP: " << m_instruction_pointer << " | ";
 			print_registers(m_registers);
 			std::cout << std::endl;
-			std::cout << "Executing: " << m_program[m_instruction_pointer] << std::endl;
+			std::cout << "Executing: " << instr << " at address " << std::format("0x{:08X}", m_registers.eip) << std::endl;
 		}
 
-		const instruction_t& instr = m_program[m_instruction_pointer];
 		try {
-			execute_instruction(instr);
+			execute_instruction(instr, next_ip);
 		}
 		catch (const std::exception& e) {
 			m_state = execution_state_t::ERROR;
