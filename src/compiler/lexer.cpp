@@ -160,7 +160,10 @@ namespace compiler {
 		"char",
 		"bool",
 		"void",
+
 		"struct",
+		"union",
+		"typedef",
 		"break",
 		"continue",
 		"sizeof",

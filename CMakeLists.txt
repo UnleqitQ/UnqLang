@@ -10,12 +10,9 @@ add_executable(MiscMachine
 	src/machine/computer.cpp
 	src/main.cpp
 	src/compiler/lexer.cpp
-	src/compiler/lexer.hpp
 	src/compiler/ast.cpp
-	src/compiler/ast.hpp
 	src/compiler/compiler.cpp
-	src/compiler/compiler.hpp
 	src/compiler/ast_interpreter.cpp
-	src/compiler/ast_interpreter.hpp
 	src/compiler/ast_helpers.cpp
+	src/compiler/analysis/types.cpp
 )

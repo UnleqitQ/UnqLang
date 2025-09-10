@@ -331,9 +331,21 @@ namespace compiler {
 			},
 			"StructType"
 		).rename("StructType");
+		const ast_type_parser_t ast_type_union_parser = (
+			util::keyword("union") > ast_type_members_parser
+		).map<std::shared_ptr<ast_type_node>>(
+			[](const auto& p) {
+				return std::make_shared<ast_type_node>(
+					ast_type_node::type_t::Union,
+					p
+				);
+			},
+			"UnionType"
+		).rename("UnionType");
 		const ast_type_parser_t ast_type_parser = (
 			ast_type_definition_parser ||
-			ast_type_struct_parser
+			ast_type_struct_parser ||
+			ast_type_union_parser
 		).rename("Type");
 
 		void register_type_parsers(ParserTable& table) {
@@ -1202,18 +1214,56 @@ namespace compiler {
 			).rename("FunctionDeclaration");
 
 		const ast_statement_parser_t ast_struct_declaration_parser =
-			((util::keyword("struct") >
-				util::identifier()) + (type_parser::ast_type_members_parser
-				< util::punctuation(';')))
+			(util::keyword("struct") >
+				util::identifier() + ~type_parser::ast_type_members_parser
+				< util::punctuation(';'))
 			.map<std::shared_ptr<ast_statement_node>>(
 				[](const auto& p) {
 					ast_statement_struct_declaration struct_decl;
 					struct_decl.name = std::get<std::string>(p.first.value);
-					struct_decl.body = p.second;
+					if (p.second.has_value()) {
+						struct_decl.body = std::make_shared<ast_type_members>(p.second.value());
+					}
+					else {
+						struct_decl.body = nullptr;
+					}
 					return util::make_ast_statement_node(ast_statement_node::type_t::StructDeclaration, struct_decl);
 				},
 				"StructDeclaration"
 			).rename("StructDeclaration");
+
+		const ast_statement_parser_t ast_union_declaration_parser =
+			(util::keyword("union") >
+				util::identifier() + ~type_parser::ast_type_members_parser
+				< util::punctuation(';'))
+			.map<std::shared_ptr<ast_statement_node>>(
+				[](const auto& p) {
+					ast_statement_struct_declaration union_decl;
+					union_decl.name = std::get<std::string>(p.first.value);
+					if (p.second.has_value()) {
+						union_decl.body = std::make_shared<ast_type_members>(p.second.value());
+					}
+					else {
+						union_decl.body = nullptr;
+					}
+					return util::make_ast_statement_node(ast_statement_node::type_t::UnionDeclaration, union_decl);
+				},
+				"UnionDeclaration"
+			).rename("UnionDeclaration");
+
+		const ast_statement_parser_t ast_typedef_declaration_parser =
+			(util::keyword("typedef") >
+				type_parser::ast_type_definition_parser +
+				util::identifier() < util::punctuation(';'))
+			.map<std::shared_ptr<ast_statement_node>>(
+				[](const auto& p) {
+					ast_statement_type_declaration typedef_decl;
+					typedef_decl.aliased_type = p.first;
+					typedef_decl.name = std::get<std::string>(p.second.value);
+					return util::make_ast_statement_node(ast_statement_node::type_t::TypeDeclaration, typedef_decl);
+				},
+				"TypedefDeclaration"
+			).rename("TypedefDeclaration");
 
 		const ast_statement_parser_t ast_statement_parser = (
 			ast_variable_declaration_parser ||
@@ -1228,8 +1278,10 @@ namespace compiler {
 			table["ast_statement_parser"] = std::make_shared<ast_statement_parser_t>(ast_statement_parser);
 			table["ast_block_parser"] = std::make_shared<ast_statement_parser_t>(ast_block_parser);
 			table["ast_if_statement_parser"] = std::make_shared<ast_statement_parser_t>(ast_if_statement_parser);
-			table["ast_function_declaration_parser"] = std::make_shared<ast_statement_parser_t>(ast_function_declaration_parser);
-			table["ast_variable_declaration_parser"] = std::make_shared<ast_statement_parser_t>(ast_variable_declaration_parser);
+			table["ast_function_declaration_parser"] = std::make_shared<ast_statement_parser_t>(
+				ast_function_declaration_parser);
+			table["ast_variable_declaration_parser"] = std::make_shared<ast_statement_parser_t>(
+				ast_variable_declaration_parser);
 		}
 	}
 
@@ -1243,10 +1295,7 @@ namespace compiler {
 	}
 
 	// Program
-	typedef Parser<lexer_token, std::variant<
-		ast_statement_function_declaration,
-		ast_statement_struct_declaration
-	>> ast_program_element_parser_t;
+	typedef Parser<lexer_token, ast_program::program_element_t> ast_program_element_parser_t;
 
 
 	const ast_program_element_parser_t ast_program_function_declaration_parser =
@@ -1256,15 +1305,9 @@ namespace compiler {
 				return func_decl;
 			},
 			"FunctionDeclarationElement"
-		).map<std::variant<
-			ast_statement_function_declaration,
-			ast_statement_struct_declaration
-		>>(
+		).map<ast_program::program_element_t>(
 			[](const ast_statement_function_declaration& func_decl) {
-				return std::variant<
-					ast_statement_function_declaration,
-					ast_statement_struct_declaration
-				>(func_decl);
+				return ast_program::program_element_t(func_decl);
 			},
 			"FunctionDeclarationVariant"
 		);
@@ -1275,22 +1318,58 @@ namespace compiler {
 				return struct_decl;
 			},
 			"StructDeclarationElement"
-		).map<std::variant<
-			ast_statement_function_declaration,
-			ast_statement_struct_declaration
-		>>(
+		).map<ast_program::program_element_t>(
 			[](const ast_statement_struct_declaration& struct_decl) {
-				return std::variant<
-					ast_statement_function_declaration,
-					ast_statement_struct_declaration
-				>(struct_decl);
+				return ast_program::program_element_t(struct_decl);
 			},
 			"StructDeclarationVariant"
+		);
+	const ast_program_element_parser_t ast_program_union_declaration_parser =
+		statement_parser::ast_union_declaration_parser.map<ast_statement_struct_declaration>(
+			[](const std::shared_ptr<ast_statement_node>& node) {
+				const auto& union_decl = std::get<ast_statement_struct_declaration>(node->value);
+				return union_decl;
+			},
+			"UnionDeclarationElement"
+		).map<ast_program::program_element_t>(
+			[](const ast_statement_struct_declaration& union_decl) {
+				return ast_program::program_element_t(union_decl);
+			},
+			"UnionDeclarationVariant"
+		);
+	const ast_program_element_parser_t ast_program_typedef_declaration_parser =
+		statement_parser::ast_typedef_declaration_parser.map<ast_statement_type_declaration>(
+			[](const std::shared_ptr<ast_statement_node>& node) {
+				const auto& typedef_decl = std::get<ast_statement_type_declaration>(node->value);
+				return typedef_decl;
+			},
+			"TypedefDeclarationElement"
+		).map<ast_program::program_element_t>(
+			[](const ast_statement_type_declaration& typedef_decl) {
+				return ast_program::program_element_t(typedef_decl);
+			},
+			"TypedefDeclarationVariant"
+		);
+	const ast_program_element_parser_t ast_program_variable_declaration_parser =
+		statement_parser::ast_variable_declaration_parser.map<ast_statement_variable_declaration>(
+			[](const std::shared_ptr<ast_statement_node>& node) {
+				const auto& var_decl = std::get<ast_statement_variable_declaration>(node->value);
+				return var_decl;
+			},
+			"VariableDeclarationElement"
+		).map<ast_program::program_element_t>(
+			[](const ast_statement_variable_declaration& var_decl) {
+				return ast_program::program_element_t(var_decl);
+			},
+			"VariableDeclarationVariant"
 		);
 
 	const ast_program_element_parser_t ast_program_element_parser = (
 		ast_program_function_declaration_parser ||
-		ast_program_struct_declaration_parser
+		ast_program_struct_declaration_parser ||
+		ast_program_union_declaration_parser ||
+		ast_program_typedef_declaration_parser ||
+		ast_program_variable_declaration_parser
 	);
 
 	const Parser<lexer_token, ast_program> ast_program_parser =
@@ -1316,7 +1395,30 @@ namespace compiler {
 		}
 		return result[0].first;
 	}
-
+	std::shared_ptr<ast_expression_node> parse_ast_expression(const std::vector<lexer_token>& tokens) {
+		ParserTable table = get_ast_parsers();
+		auto result = expression_parser::ast_expression_parser.parse(tokens, table);
+		if (result.empty()) {
+			std::cerr << "Failed to parse AST Expression" << std::endl;
+			return nullptr;
+		}
+		if (result.size() > 1) {
+			std::cerr << "Ambiguous parse for AST Expression" << std::endl;
+		}
+		return result[0].first;
+	}
+	std::shared_ptr<ast_statement_node> parse_ast_statement(const std::vector<lexer_token>& tokens) {
+		ParserTable table = get_ast_parsers();
+		auto result = statement_parser::ast_statement_parser.parse(tokens, table);
+		if (result.empty()) {
+			std::cerr << "Failed to parse AST Statement" << std::endl;
+			return nullptr;
+		}
+		if (result.size() > 1) {
+			std::cerr << "Ambiguous parse for AST Statement" << std::endl;
+		}
+		return result[0].first;
+	}
 	ast_program parse_ast_program(const std::vector<lexer_token>& tokens) {
 		auto table = get_ast_parsers();
 		auto result = ast_program_parser.parse(tokens, table);
@@ -1381,6 +1483,10 @@ namespace compiler {
 				break;
 			case type_t::Struct:
 				std::cout << std::string(indent, ' ') << "[StructType] Members:\n";
+				std::get<ast_type_members>(value).print(indent + 1);
+				break;
+			case type_t::Union:
+				std::cout << std::string(indent, ' ') << "[UnionType] Members:\n";
 				std::get<ast_type_members>(value).print(indent + 1);
 				break;
 			case type_t::Custom:
@@ -1582,6 +1688,12 @@ namespace compiler {
 			case type_t::StructDeclaration:
 				std::get<ast_statement_struct_declaration>(value).print(indent);
 				break;
+			case type_t::UnionDeclaration:
+				std::get<ast_statement_struct_declaration>(value).print(indent);
+				break;
+			case type_t::TypeDeclaration:
+				std::get<ast_statement_type_declaration>(value).print(indent);
+				break;
 			case type_t::IfStatement:
 				std::get<ast_statement_if>(value).print(indent);
 				break;
@@ -1606,8 +1718,28 @@ namespace compiler {
 	void ast_statement_struct_declaration::print(int indent) const {
 		const std::string indent_str(indent, ' ');
 		std::cout << indent_str << "[StructDeclaration] Name: " << name << "\n";
+		if (!body) {
+			std::cout << indent_str << "Incomplete struct (no body)\n";
+			return;
+		}
 		std::cout << indent_str << "Members:\n";
-		body.print(indent + 1);
+		body->print(indent + 1);
+	}
+	void ast_statement_union_declaration::print(int indent) const {
+		const std::string indent_str(indent, ' ');
+		std::cout << indent_str << "[UnionDeclaration] Name: " << name << "\n";
+		if (!body) {
+			std::cout << indent_str << "Incomplete union (no body)\n";
+			return;
+		}
+		std::cout << indent_str << "Members:\n";
+		body->print(indent + 1);
+	}
+	void ast_statement_type_declaration::print(int indent) const {
+		const std::string indent_str(indent, ' ');
+		std::cout << indent_str << "[TypeDeclaration] Name: " << name << "\n";
+		std::cout << indent_str << "Aliased Type:\n";
+		aliased_type->print(indent + 1);
 	}
 	void ast_program::print(int indent) const {
 		const std::string indent_str(indent, ' ');
@@ -1664,6 +1796,9 @@ namespace compiler {
 			}
 			case ast_type_node::type_t::Struct:
 				stream << "struct { ... }";
+				break;
+			case ast_type_node::type_t::Union:
+				stream << "union { ... }";
 				break;
 			case ast_type_node::type_t::Custom:
 				stream << std::get<std::string>(n.value);

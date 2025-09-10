@@ -9,6 +9,7 @@
 
 #include "ast.hpp"
 #include "ast_helpers.hpp"
+#include "analysis/types.hpp"
 
 namespace compiler::interpreter {
 	class ast_interpreter;
@@ -147,16 +148,17 @@ namespace compiler::interpreter {
 	}
 	struct value_t {
 		static constexpr uint32_t nullptr_value = static_cast<uint32_t>(-1);
-		static const ast_type_node void_type;
-		static const std::shared_ptr<ast_type_node> void_type_ptr;
+		static const analysis::types::type_node void_type;
+		static const std::shared_ptr<analysis::types::type_node> void_type_ptr;
 
-		std::shared_ptr<ast_type_node> type;
+		std::shared_ptr<analysis::types::type_node> type;
 		uint32_t offset;
 		std::shared_ptr<std::vector<uint8_t>> memory;
 
 		value_t() : type(void_type_ptr), offset(nullptr_value), memory(nullptr) {
 		}
-		value_t(std::shared_ptr<ast_type_node> t, uint32_t o, std::shared_ptr<std::vector<uint8_t>> mem = nullptr)
+		value_t(std::shared_ptr<analysis::types::type_node> t, uint32_t o,
+			std::shared_ptr<std::vector<uint8_t>> mem = nullptr)
 			: type(std::move(t)), offset(o), memory(std::move(mem)) {
 		}
 
@@ -194,14 +196,69 @@ namespace compiler::interpreter {
 		}
 		bool data_equals(const value_t& other, const ast_interpreter& interpreter) const;
 
-		static value_t l_value(std::shared_ptr<ast_type_node> t, const ast_interpreter& interpreter);
+		static value_t l_value(std::shared_ptr<analysis::types::type_node> t, const ast_interpreter& interpreter);
+		static value_t l_value(const analysis::types::type_node& t, const ast_interpreter& interpreter) {
+			return l_value(std::make_shared<analysis::types::type_node>(t), interpreter);
+		}
 		template<typename T>
-		static value_t l_value(std::shared_ptr<ast_type_node> t, const T& initial_value,
+		static value_t l_value(std::shared_ptr<analysis::types::type_node> t, const T& initial_value,
 			const ast_interpreter& interpreter);
 		template<typename T>
 		static value_t l_value(const T& initial_value, const ast_interpreter& interpreter) {
-			return l_value(std::make_shared<ast_type_node>(type_helpers::from_cpp_type<T>()), initial_value,
+			return l_value(std::make_shared<analysis::types::type_node>(type_helpers::from_cpp_type<T>()), initial_value,
 				interpreter);
+		}
+
+		friend std::ostream& operator<<(std::ostream& os, const value_t& value) {
+			switch (value.type->kind) {
+				case analysis::types::type_node::kind_t::PRIMITIVE: {
+					switch (std::get<analysis::types::primitive_type>(value.type->value)) {
+						case analysis::types::primitive_type::INT: {
+							int32_t int_value = value.get_as<int32_t>();
+							os << int_value;
+							break;
+						}
+						case analysis::types::primitive_type::CHAR: {
+							char char_value = value.get_as<char>();
+							os << "'" << char_value << "'";
+							break;
+						}
+						case analysis::types::primitive_type::BOOL: {
+							bool bool_value = value.get_as<uint8_t>() != 0;
+							os << (bool_value ? "true" : "false");
+							break;
+						}
+						case analysis::types::primitive_type::VOID:
+							os << "void";
+							break;
+						default:
+							os << "[unknown primitive type]";
+							break;
+					}
+					break;
+				}
+				case analysis::types::type_node::kind_t::POINTER: {
+					uint32_t ptr_value = value.get_as<uint32_t>();
+					if (is_nullptr(ptr_value)) {
+						os << "nullptr";
+					}
+					else {
+						os << "0x" << std::hex << ptr_value << std::dec;
+					}
+					break;
+				}
+				case analysis::types::type_node::kind_t::STRUCT: {
+					os << "{...}"; // Simplified for brevity
+					break;
+				}
+				case analysis::types::type_node::kind_t::ARRAY: {
+					os << "[...]"; // Simplified for brevity
+					break;
+				}
+				default:
+					os << "[unknown type]";
+			}
+			return os;
 		}
 	};
 	struct scope {
@@ -247,38 +304,41 @@ namespace compiler::interpreter {
 	};
 	struct external_function {
 		std::string name;
-		std::shared_ptr<ast_type_node> return_type;
-		std::vector<std::shared_ptr<ast_type_node>> param_types;
+		std::shared_ptr<analysis::types::type_node> return_type;
+		std::vector<std::shared_ptr<analysis::types::type_node>> param_types;
 		std::function<value_t(const std::vector<value_t>&, ast_interpreter&)> func;
 
 		external_function(std::string n,
-			std::shared_ptr<ast_type_node> ret_type,
-			std::vector<std::shared_ptr<ast_type_node>> param_t,
+			std::shared_ptr<analysis::types::type_node> ret_type,
+			std::vector<std::shared_ptr<analysis::types::type_node>> param_t,
 			std::function<value_t(const std::vector<value_t>&, ast_interpreter&)> f)
 			: name(std::move(n)), return_type(std::move(ret_type)), param_types(std::move(param_t)), func(std::move(f)) {
 		}
 	};
 	struct function_info {
-		std::shared_ptr<ast_type_node> return_type;
-		std::vector<std::shared_ptr<ast_type_node>> param_types;
+		std::shared_ptr<analysis::types::type_node> return_type;
+		std::vector<std::shared_ptr<analysis::types::type_node>> param_types;
 		bool is_external;
 
 		function_info() : return_type(nullptr), param_types(), is_external(false) {
 		}
-		function_info(std::shared_ptr<ast_type_node> ret_type,
-			std::vector<std::shared_ptr<ast_type_node>> param_t,
+		function_info(std::shared_ptr<analysis::types::type_node> ret_type,
+			std::vector<std::shared_ptr<analysis::types::type_node>> param_t,
 			bool external)
 			: return_type(std::move(ret_type)), param_types(std::move(param_t)), is_external(external) {
 		}
 	};
 	class ast_interpreter {
-		std::unordered_map<std::string, ast_type_node> m_types;
 		std::unordered_map<std::string, ast_statement_function_declaration> m_functions;
 		std::unordered_map<std::string, external_function> m_external_functions;
 		std::unordered_map<std::string, function_info> m_function_infos;
 		std::unordered_map<ast_expression_literal, uint32_t> m_literal_memory_map;
+		analysis::types::type_system m_type_system;
+		std::shared_ptr<scope> m_global_scope = std::make_shared<scope>(nullptr);
 
 		memory_t m_memory;
+
+		bool m_debug = false;
 
 	public:
 		explicit ast_interpreter() {
@@ -324,30 +384,13 @@ namespace compiler::interpreter {
 		bool execute_block(const ast_statement_block& block, const std::shared_ptr<scope>& current_scope,
 			value_t& out_return_value);
 
-		value_t allocate_variable(const std::shared_ptr<ast_type_node>& type);
+		value_t allocate_variable(const analysis::types::type_node& type);
+		value_t allocate_variable(const std::shared_ptr<analysis::types::type_node>& type);
 		void deallocate_variable(const value_t& var);
 
-		ast_type_node resolve_type(const ast_type_node& type) const {
-			ast_type_node res = type;
-			while (res.type == ast_type_node::type_t::Custom) {
-				res = get_type(std::get<std::string>(res.value));
-			}
-			return res;
+		analysis::types::type_node get_type(std::string name) const {
+			return m_type_system.get_type(std::move(name));
 		}
-
-		// Type helpers
-		ast_type_node get_type(std::string name) const {
-			if (m_types.contains(name)) {
-				return m_types.at(name);
-			}
-			throw std::runtime_error("Unknown type: " + name);
-		}
-		uint32_t deduce_type_size(const std::shared_ptr<ast_type_node>& type) const;
-		uint32_t deduce_type_struct_size(const ast_type_members& members) const;
-		uint32_t deduce_type_union_size(const ast_type_members& members) const;
-		static uint16_t get_member_index(const ast_type_members& members, const std::string& name);
-		uint32_t get_struct_member_offset(const ast_type_members& members, uint16_t member_index) const;
-		uint32_t get_struct_member_offset(const ast_type_members& members, const std::string& name) const;
 
 		// getters
 		const memory_t& memory() const {
@@ -355,6 +398,12 @@ namespace compiler::interpreter {
 		}
 		memory_t& memory() {
 			return m_memory;
+		}
+		const analysis::types::type_system& type_system() const {
+			return m_type_system;
+		}
+		analysis::types::type_system& type_system() {
+			return m_type_system;
 		}
 		const std::unordered_map<std::string, ast_statement_function_declaration>& functions() const {
 			return m_functions;
@@ -364,15 +413,16 @@ namespace compiler::interpreter {
 		}
 	};
 	template<typename T>
-	value_t value_t::l_value(std::shared_ptr<ast_type_node> t, const T& initial_value,
+	value_t value_t::l_value(std::shared_ptr<analysis::types::type_node> t, const T& initial_value,
 		const ast_interpreter& interpreter) {
-		if (t->type == ast_type_node::type_t::Void) {
+		if (t->kind == analysis::types::type_node::kind_t::PRIMITIVE &&
+			std::get<analysis::types::primitive_type>(t->value) == analysis::types::primitive_type::VOID) {
 			throw std::runtime_error("Cannot create l-value of void type with initial value");
 		}
-		if (t->type == ast_type_node::type_t::Function) {
+		if (t->kind == analysis::types::type_node::kind_t::FUNCTION) {
 			throw std::runtime_error("Cannot create l-value of function type with initial value");
 		}
-		if (interpreter.deduce_type_size(t) != sizeof(T)) {
+		if (sizeof(T) != interpreter.type_system().get_type_size(*t)) {
 			throw std::runtime_error("Initial value size does not match type size");
 		}
 		value_t val = l_value(std::move(t), interpreter);

@@ -44,19 +44,50 @@ namespace compiler {
 			Array,
 			Function,
 			Struct,
-			Custom // typedef or user-defined type
+			Union,
+			Custom // typedef or reference to named type
 		} type;
 		std::variant<
 			std::monostate, // Void, Int, Float, Char, Bool
 			ast_type_pointer, // Pointer
 			ast_type_array, // Array
 			ast_type_function, // Function
-			ast_type_members, // Struct
+			ast_type_members, // Struct, Union
 			std::string // Custom
 		> value;
 		ast_type_node() : type(type_t::Void), value(std::monostate{}) {
 		}
-		ast_type_node(type_t t, auto&& v) : type(t), value(std::forward<decltype(v)>(v)) {
+		ast_type_node(type_t t, std::monostate) : type(t) {
+			if (t == type_t::Pointer || t == type_t::Array || t == type_t::Function || t == type_t::Struct ||
+				t == type_t::Union || t == type_t::Custom) {
+				throw std::invalid_argument("Type must not be Pointer, Array, Function, Struct, Union or Custom for ast_type_node with monostate");
+			}
+			value = std::monostate{};
+		}
+		ast_type_node(type_t type, const ast_type_pointer& p) : type(type), value(p) {
+			if (type != type_t::Pointer) {
+				throw std::invalid_argument("Type must be Pointer for ast_type_pointer");
+			}
+		}
+		ast_type_node(type_t type, const ast_type_array& a) : type(type), value(a) {
+			if (type != type_t::Array) {
+				throw std::invalid_argument("Type must be Array for ast_type_array");
+			}
+		}
+		ast_type_node(type_t type, const ast_type_function& f) : type(type), value(f) {
+			if (type != type_t::Function) {
+				throw std::invalid_argument("Type must be Function for ast_type_function");
+			}
+		}
+		ast_type_node(type_t type, const ast_type_members& m) : type(type), value(m) {
+			if (type != type_t::Struct && type != type_t::Union) {
+				throw std::invalid_argument("Type must be Struct or Union for ast_type_members");
+			}
+		}
+		ast_type_node(type_t type, const std::string& name) : type(type), value(name) {
+			if (type != type_t::Custom) {
+				throw std::invalid_argument("Type must be Custom for string name");
+			}
 		}
 
 		friend std::ostream& operator<<(std::ostream& stream, const ast_type_node& n);
@@ -102,11 +133,23 @@ namespace compiler {
 						return false;
 					}
 					for (size_t i = 0; i < s1.members.size(); ++i) {
-						if (s1.members[i].name != s2.members[i].name ||
-							*s1.members[i].type != *s2.members[i].type) {
+						if (*s1.members[i].type != *s2.members[i].type) {
 							return false;
 						}
 					}
+					return true;
+				}
+				case type_t::Union: {
+					const auto& u1 = std::get<ast_type_members>(value);
+					const auto& u2 = std::get<ast_type_members>(other.value);
+					if (u1.members.size() != u2.members.size()) {
+						return false;
+					}
+					for (size_t i = 0; i < u1.members.size(); ++i) {
+						if (*u1.members[i].type != *u2.members[i].type) {
+							return false;
+						}
+						}
 					return true;
 				}
 				case type_t::Custom: {
@@ -365,7 +408,17 @@ namespace compiler {
 	};
 	struct ast_statement_struct_declaration {
 		std::string name;
-		ast_type_members body;
+		std::shared_ptr<ast_type_members> body;
+		void print(int indent = 0) const;
+	};
+	struct ast_statement_union_declaration {
+		std::string name;
+		std::shared_ptr<ast_type_members> body;
+		void print(int indent = 0) const;
+	};
+	struct ast_statement_type_declaration {
+		std::string name;
+		std::shared_ptr<ast_type_node> aliased_type;
 		void print(int indent = 0) const;
 	};
 
@@ -374,6 +427,8 @@ namespace compiler {
 			VariableDeclaration,
 			FunctionDeclaration,
 			StructDeclaration,
+			UnionDeclaration,
+			TypeDeclaration, // typedef
 			IfStatement,
 			WhileStatement,
 			ReturnStatement,
@@ -392,6 +447,8 @@ namespace compiler {
 			ast_statement_variable_declaration, // VariableDeclaration
 			ast_statement_function_declaration, // FunctionDeclaration
 			ast_statement_struct_declaration, // StructDeclaration
+			ast_statement_union_declaration, // UnionDeclaration
+			ast_statement_type_declaration, // TypeDeclaration
 
 			std::monostate // Unknown
 		> value;
@@ -406,7 +463,10 @@ namespace compiler {
 	struct ast_program {
 		typedef std::variant<
 			ast_statement_function_declaration, // Function declarations
-			ast_statement_struct_declaration // Struct declarations
+			ast_statement_struct_declaration, // Struct declarations
+			ast_statement_union_declaration, // Union declarations
+			ast_statement_type_declaration, // Type declarations (typedefs)
+			ast_statement_variable_declaration // Global variable declarations
 		> program_element_t;
 		std::vector<program_element_t> body;
 
@@ -424,7 +484,7 @@ namespace compiler {
 	ast_program parse_ast_program(const std::vector<lexer_token>& tokens);
 } // compiler
 
-template <>
+template<>
 struct std::hash<compiler::ast_expression_literal> {
 	size_t operator()(const compiler::ast_expression_literal& lit) const noexcept {
 		size_t h1 = std::hash<int>()(static_cast<int>(lit.type));

@@ -3,83 +3,13 @@
 #include <ranges>
 
 namespace compiler::interpreter {
-	const ast_type_node value_t::void_type = ast_type_node(ast_type_node::type_t::Void, std::monostate{});
-	const std::shared_ptr<ast_type_node> value_t::void_type_ptr = std::make_shared<ast_type_node>(void_type);
-	uint32_t ast_interpreter::deduce_type_size(const std::shared_ptr<ast_type_node>& type) const {
-		switch (type->type) {
-			case ast_type_node::type_t::Int:
-				return 4;
-			case ast_type_node::type_t::Char:
-				return 1;
-			case ast_type_node::type_t::Bool:
-				return 1;
-			case ast_type_node::type_t::Struct:
-				return deduce_type_struct_size(std::get<ast_type_members>(type->value));
-			case ast_type_node::type_t::Array: {
-				const auto& array_info = std::get<ast_type_array>(type->value);
-				uint32_t base_size = deduce_type_size(array_info.base);
-				return base_size * (array_info.size > 0 ? array_info.size : 1);
-				// if size is 0, treat as size 1 for unknown size
-			}
-			case ast_type_node::type_t::Pointer:
-			case ast_type_node::type_t::Function:
-				return 4;
-			case ast_type_node::type_t::Void:
-				return 0; // functions and void do not have a size
-			case ast_type_node::type_t::Custom: {
-				const auto& type_name = std::get<std::string>(type->value);
-				// Look up the custom type in the symbol table
-				if (m_types.contains(type_name)) {
-					const auto& custom_type = m_types.at(type_name);
-					return deduce_type_size(std::make_shared<ast_type_node>(custom_type));
-				}
-				throw std::runtime_error("Unknown custom type: " + std::get<std::string>(type->value));
-			}
-			default:
-				throw std::runtime_error("Unknown type");
-		}
-	}
-	uint32_t ast_interpreter::deduce_type_struct_size(const ast_type_members& members) const {
-		uint32_t total_size = 0;
-		for (const auto& [member_name, member_type] : members.members) {
-			total_size += deduce_type_size(member_type);
-		}
-		return total_size;
-	}
-	uint32_t ast_interpreter::deduce_type_union_size(const ast_type_members& members) const {
-		uint32_t max_size = 0;
-		for (const auto& [member_name, member_type] : members.members) {
-			uint32_t member_size = deduce_type_size(member_type);
-			if (member_size > max_size) {
-				max_size = member_size;
-			}
-		}
-		return max_size;
-	}
-	uint16_t ast_interpreter::get_member_index(const ast_type_members& members, const std::string& name) {
-		for (size_t i = 0; i < members.members.size(); ++i) {
-			if (members.members[i].name == name) {
-				return static_cast<uint16_t>(i);
-			}
-		}
-		throw std::runtime_error("Member not found: " + name);
-	}
-	uint32_t ast_interpreter::get_struct_member_offset(const ast_type_members& members, uint16_t member_index) const {
-		if (member_index >= static_cast<uint16_t>(members.members.size())) {
-			throw std::runtime_error("Member index out of bounds");
-		}
-		uint32_t offset = 0;
-		for (uint16_t i = 0; i < member_index; ++i) {
-			offset += deduce_type_size(members.members[i].type);
-		}
-		return offset;
-	}
-	uint32_t ast_interpreter::get_struct_member_offset(const ast_type_members& members, const std::string& name) const {
-		uint16_t member_index = get_member_index(members, name);
-		return get_struct_member_offset(members, member_index);
-	}
+	const analysis::types::type_node value_t::void_type = analysis::types::type_node(
+		analysis::types::primitive_type::VOID);
+	const std::shared_ptr<analysis::types::type_node> value_t::void_type_ptr = std::make_shared<
+		analysis::types::type_node>(void_type);
+
 	bool value_t::as_bool(const ast_interpreter& interpreter) const {
-		uint32_t size = interpreter.deduce_type_size(type);
+		uint32_t size = interpreter.type_system().get_type_size(*type);
 		for (uint32_t i = 0; i < size; ++i) {
 			if (memory->at(offset + i) != 0) {
 				return true;
@@ -88,18 +18,26 @@ namespace compiler::interpreter {
 		return false;
 	}
 	int32_t value_t::as_int(const ast_interpreter& interpreter) const {
-		switch (type->type) {
-			case ast_type_node::type_t::Int: {
+		analysis::types::type_node tp = *type;
+		// Resolve custom types
+		while (tp.kind == analysis::types::type_node::kind_t::CUSTOM) {
+			tp = interpreter.get_type(std::get<std::string>(tp.value));
+		}
+		if (tp.kind != analysis::types::type_node::kind_t::PRIMITIVE) {
+			throw std::runtime_error("Cannot convert non-primitive type to int");
+		}
+		switch (std::get<analysis::types::primitive_type>(tp.value)) {
+			case analysis::types::primitive_type::INT: {
 				int32_t int_value;
 				std::memcpy(&int_value, memory->data() + offset, 4);
 				return int_value;
 			}
-			case ast_type_node::type_t::Char: {
+			case analysis::types::primitive_type::CHAR: {
 				uint8_t char_value;
 				std::memcpy(&char_value, memory->data() + offset, 1);
 				return static_cast<int32_t>(char_value);
 			}
-			case ast_type_node::type_t::Bool: {
+			case analysis::types::primitive_type::BOOL: {
 				uint8_t bool_value;
 				std::memcpy(&bool_value, memory->data() + offset, 1);
 				return static_cast<int32_t>(bool_value != 0);
@@ -109,18 +47,26 @@ namespace compiler::interpreter {
 		}
 	}
 	uint32_t value_t::as_uint(const ast_interpreter& interpreter) const {
-		switch (type->type) {
-			case ast_type_node::type_t::Int: {
+		analysis::types::type_node tp = *type;
+		// Resolve custom types
+		while (tp.kind == analysis::types::type_node::kind_t::CUSTOM) {
+			tp = interpreter.get_type(std::get<std::string>(tp.value));
+		}
+		if (tp.kind != analysis::types::type_node::kind_t::PRIMITIVE) {
+			throw std::runtime_error("Cannot convert non-primitive type to uint");
+		}
+		switch (std::get<analysis::types::primitive_type>(tp.value)) {
+			case analysis::types::primitive_type::INT: {
 				uint32_t uint_value;
 				std::memcpy(&uint_value, memory->data() + offset, 4);
 				return uint_value;
 			}
-			case ast_type_node::type_t::Char: {
+			case analysis::types::primitive_type::CHAR: {
 				uint8_t char_value;
 				std::memcpy(&char_value, memory->data() + offset, 1);
 				return static_cast<uint32_t>(char_value);
 			}
-			case ast_type_node::type_t::Bool: {
+			case analysis::types::primitive_type::BOOL: {
 				uint8_t bool_value;
 				std::memcpy(&bool_value, memory->data() + offset, 1);
 				return static_cast<uint32_t>(bool_value != 0);
@@ -130,33 +76,32 @@ namespace compiler::interpreter {
 		}
 	}
 	value_t value_t::get_member(const std::string& name, ast_interpreter& interpreter) const {
-		ast_type_node self_type = *type;
-		while (self_type.type == ast_type_node::type_t::Custom) {
+		analysis::types::type_node self_type = *type;
+		while (self_type.kind == analysis::types::type_node::kind_t::CUSTOM) {
 			self_type = interpreter.get_type(std::get<std::string>(self_type.value));
 		}
-		if (self_type.type != ast_type_node::type_t::Struct) {
+		if (self_type.kind != analysis::types::type_node::kind_t::STRUCT) {
 			throw std::runtime_error("Type is not a struct");
 		}
-		uint32_t member_index = interpreter.get_member_index(std::get<ast_type_members>(self_type.value), name);
-		uint32_t member_offset = interpreter.get_struct_member_offset(std::get<ast_type_members>(self_type.value),
-			member_index);
-		const uint32_t final_offset = offset + member_offset;
-		const auto& member_type = std::get<ast_type_members>(self_type.value).members[member_index].type;
+		auto member_info = interpreter.type_system().get_struct_member_info(
+			std::get<analysis::types::struct_type>(self_type.value), name);
+		const uint32_t final_offset = offset + member_info.offset;
+		const auto& member_type = std::get<analysis::types::struct_type>(self_type.value).members[member_info.index].type;
 		return value_t(member_type, final_offset);
 	}
 	value_t value_t::dereference(ast_interpreter& interpreter) const {
-		if (type->type != ast_type_node::type_t::Pointer) {
+		if (type->kind != analysis::types::type_node::kind_t::POINTER) {
 			throw std::runtime_error("Type is not a pointer");
 		}
 		const uint32_t ptr_value = get_as<uint32_t>();
-		ast_type_pointer pointer_type = std::get<ast_type_pointer>(type->value);
-		return value_t(pointer_type.base, ptr_value);
+		auto pointer_type = std::get<analysis::types::pointer_type>(type->value);
+		return value_t(pointer_type.pointee_type, ptr_value, interpreter.memory().memory);
 	}
 	bool value_t::data_equals(const value_t& other, const ast_interpreter& interpreter) const {
-		if (*type != *other.type) {
+		if (!interpreter.type_system().is_equivalent(*type, *other.type)) {
 			return false;
 		}
-		uint32_t size = interpreter.deduce_type_size(type);
+		uint32_t size = interpreter.type_system().get_type_size(*type);
 		for (uint32_t i = 0; i < size; ++i) {
 			if (memory->at(offset + i) != other.memory->at(other.offset + i)) {
 				return false;
@@ -164,8 +109,8 @@ namespace compiler::interpreter {
 		}
 		return true;
 	}
-	value_t value_t::l_value(std::shared_ptr<ast_type_node> t, const ast_interpreter& interpreter) {
-		uint32_t size = interpreter.deduce_type_size(t);
+	value_t value_t::l_value(std::shared_ptr<analysis::types::type_node> t, const ast_interpreter& interpreter) {
+		uint32_t size = interpreter.type_system().get_type_size(*t);
 		std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(size);
 		return value_t(t, 0, mem);
 	}
@@ -178,24 +123,92 @@ namespace compiler::interpreter {
 					throw std::runtime_error("Function redeclaration: " + func_decl.name);
 				}
 				m_functions[func_decl.name] = func_decl;
-				std::vector<std::shared_ptr<ast_type_node>> param_types;
+				std::vector<std::shared_ptr<analysis::types::type_node>> param_types;
 				param_types.reserve(func_decl.parameters.size());
 				for (const auto& param_type : func_decl.parameters | std::views::values) {
-					param_types.push_back(param_type);
+					param_types.push_back(
+						std::make_shared<analysis::types::type_node>(analysis::types::type_system::from_ast(*param_type)));
 				}
 				m_function_infos[func_decl.name] = function_info{
-					func_decl.return_type,
+					std::make_shared<analysis::types::type_node>(
+						analysis::types::type_system::from_ast(*func_decl.return_type)),
 					std::move(param_types),
 					false // is_external
 				};
 			}
 			else if (std::holds_alternative<ast_statement_struct_declaration>(element)) {
 				const auto& struct_decl = std::get<ast_statement_struct_declaration>(element);
-				const auto& [struct_name, __] = struct_decl;
-				if (m_types.contains(struct_name)) {
-					throw std::runtime_error("Struct redeclaration: " + struct_name);
+				if (struct_decl.body == nullptr) {
+					// Forward declaration
+					if (m_type_system.is_type_declared(struct_decl.name)) {
+						// Already declared
+						continue;
+					}
+					m_type_system.declare_type(struct_decl.name,
+						analysis::types::type_node::kind_t::STRUCT);
 				}
-				m_types[struct_name] = ast_type_node(ast_type_node::type_t::Struct, struct_decl.body);
+				else {
+					analysis::types::struct_type struct_type;
+					for (const auto& member : struct_decl.body->members) {
+						struct_type.members.emplace_back(member.name,
+							std::make_shared<analysis::types::type_node>(
+								analysis::types::type_system::from_ast(*member.type)));
+					}
+					m_type_system.declare_initialized_type(struct_decl.name,
+						struct_type);
+				}
+			}
+			else if (std::holds_alternative<ast_statement_union_declaration>(element)) {
+				const auto& union_decl = std::get<ast_statement_union_declaration>(element);
+				if (union_decl.body == nullptr) {
+					// Forward declaration
+					if (m_type_system.is_type_declared(union_decl.name)) {
+						// Already declared
+						continue;
+					}
+					m_type_system.declare_type(union_decl.name,
+						analysis::types::type_node::kind_t::UNION);
+				}
+				else {
+					analysis::types::union_type union_type;
+					for (const auto& member : union_decl.body->members) {
+						union_type.members.emplace_back(member.name,
+							std::make_shared<analysis::types::type_node>(
+								analysis::types::type_system::from_ast(*member.type)));
+					}
+					m_type_system.declare_initialized_type(union_decl.name,
+						union_type);
+				}
+			}
+			else if (std::holds_alternative<ast_statement_type_declaration>(element)) {
+				const auto& type_decl = std::get<ast_statement_type_declaration>(element);
+				if (m_type_system.is_type_declared(type_decl.name)) {
+					throw std::runtime_error("Type redeclaration: " + type_decl.name);
+				}
+				m_type_system.declare_initialized_type(type_decl.name,
+					analysis::types::type_system::from_ast(*type_decl.aliased_type));
+			}
+			else if (std::holds_alternative<ast_statement_variable_declaration>(element)) {
+				// Global variable
+				const auto& var_decl = std::get<ast_statement_variable_declaration>(element);
+				if (m_global_scope->has_variable(var_decl.name, false)) {
+					throw std::runtime_error("Global variable redeclaration: " + var_decl.name);
+				}
+				auto var_type = std::make_shared<analysis::types::type_node>(
+					analysis::types::type_system::from_ast(*var_decl.var_type));
+				value_t var_value = allocate_variable(var_type);
+				if (var_decl.initializer) {
+					value_t init_value = evaluate_expression(var_decl.initializer, m_global_scope);
+					if (*init_value.type != *var_type) {
+						throw std::runtime_error("Global variable initializer type mismatch: " + var_decl.name);
+					}
+					// Copy initializer value to variable memory
+					uint32_t size = m_type_system.get_type_size(*var_type);
+					for (uint32_t i = 0; i < size; ++i) {
+						m_memory.data()[var_value.offset + i] = init_value.memory->at(init_value.offset + i);
+					}
+				}
+				m_global_scope->variables[var_decl.name] = var_value;
 			}
 			else {
 				throw std::runtime_error("Unknown program element");
@@ -383,7 +396,7 @@ namespace compiler::interpreter {
 	}
 
 	value_t ast_interpreter::execute_function(const std::string& name, const std::vector<value_t>& args) {
-		if (true) {
+		if (m_debug) {
 			// Debugging purpose
 			std::cout << "Executing function '" << name << "' with ";
 			if (args.empty()) {
@@ -394,34 +407,45 @@ namespace compiler::interpreter {
 				for (size_t i = 0; i < args.size(); ++i) {
 					if (i > 0) std::cout << ", ";
 					const auto& arg = args[i];
-					const auto& type = resolve_type(*arg.type);
-					switch (type.type) {
-						case ast_type_node::type_t::Int: {
-							int32_t int_value = arg.get_as<int32_t>();
-							std::cout << std::format("[int] {0} (0x{0:08X})", int_value);
+					const auto& type = m_type_system.unwrap_type(*arg.type);
+					switch (type.kind) {
+						case analysis::types::type_node::kind_t::PRIMITIVE: {
+							switch (std::get<analysis::types::primitive_type>(type.value)) {
+								case analysis::types::primitive_type::INT: {
+									int32_t int_value = arg.get_as<int32_t>();
+									std::cout << std::format("[int] {0} (0x{0:08X})", int_value);
+									break;
+								}
+								case analysis::types::primitive_type::CHAR: {
+									char char_value = arg.get_as<char>();
+									std::cout << std::format("[char] '{0}' ({1} / 0x{1:02X})", char_value,
+										static_cast<uint8_t>(char_value));
+									break;
+								}
+								case analysis::types::primitive_type::BOOL: {
+									bool bool_value = arg.get_as<bool>();
+									std::cout << std::format("[bool] {0}", bool_value ? "true" : "false");
+									break;
+								}
+								case analysis::types::primitive_type::VOID:
+									std::cout << "[void]";
+									break;
+								default:
+									std::cout << "[unknown primitive type]";
+									break;
+							}
 							break;
 						}
-						case ast_type_node::type_t::Char: {
-							char char_value = arg.get_as<char>();
-							std::cout << std::format("[char] '{0}' ({1} / 0x{1:02X})", char_value,
-								static_cast<uint8_t>(char_value));
-							break;
-						}
-						case ast_type_node::type_t::Bool: {
-							bool bool_value = arg.get_as<bool>();
-							std::cout << std::format("[bool] {0}", bool_value ? "true" : "false");
-							break;
-						}
-						case ast_type_node::type_t::Pointer: {
+						case analysis::types::type_node::kind_t::POINTER: {
 							uint32_t ptr_value = arg.get_as<uint32_t>();
 							std::cout << std::format("[ptr] 0x{0:08X}", ptr_value);
 							break;
 						}
-						case ast_type_node::type_t::Struct: {
+						case analysis::types::type_node::kind_t::STRUCT: {
 							std::cout << "[struct] { [...] }";
 							break;
 						}
-						case ast_type_node::type_t::Array: {
+						case analysis::types::type_node::kind_t::ARRAY: {
 							std::cout << "[array] { [...] }";
 							break;
 						}
@@ -461,7 +485,7 @@ namespace compiler::interpreter {
 			throw std::runtime_error("Function not found: " + name);
 		}
 		const auto& func_decl = m_functions.at(name);
-		auto func_scope = std::make_shared<scope>(nullptr);
+		auto func_scope = std::make_shared<scope>(m_global_scope);
 		// Allocate parameters
 		for (size_t i = 0; i < args.size(); ++i) {
 			const auto& [param_name, param_type] = func_decl.parameters[i];
@@ -469,12 +493,14 @@ namespace compiler::interpreter {
 		}
 		value_t result;
 		bool has_returned = execute_block(func_decl.body, func_scope, result);
+		const auto& return_type = analysis::types::type_system::from_ast(*func_decl.return_type);
 		if (!has_returned) {
-			if (func_decl.return_type->type != ast_type_node::type_t::Void) {
+			if (return_type.kind != analysis::types::type_node::kind_t::PRIMITIVE ||
+				std::get<analysis::types::primitive_type>(return_type.value) != analysis::types::primitive_type::VOID) {
 				throw std::runtime_error("Function did not return a value: " + name);
 			}
 		}
-		if (*result.type != *func_decl.return_type) {
+		if (!m_type_system.is_equivalent(*result.type, return_type)) {
 			throw std::runtime_error("Function return type mismatch: " + name);
 		}
 		return result;
@@ -490,11 +516,22 @@ namespace compiler::interpreter {
 					bool result_bool = false;
 					if (left_bool) {
 						value_t right_value = evaluate_expression(expression.right, current_scope);
+						if (m_debug) {
+							std::cout << "Evaluating binary expression " << left_value << " " << expression.type << " " <<
+								right_value;
+						}
 						bool right_bool = right_value.as_bool(*this);
 						result_bool = right_bool;
 					}
-					auto bool_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Bool,
-						std::monostate{}));
+					else if (m_debug) {
+						std::cout << "Evaluating binary expression " << left_value << " " << expression.type <<
+							" (short-circuited)";
+					}
+					if (m_debug) {
+						std::cout << " => " << (result_bool ? "true" : "false") << "\n";
+					}
+					auto bool_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+						analysis::types::primitive_type::BOOL));
 					std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(1);
 					uint8_t byte_value = result_bool ? 1 : 0;
 					std::memcpy(mem->data(), &byte_value, 1);
@@ -505,11 +542,22 @@ namespace compiler::interpreter {
 					bool result_bool = true;
 					if (!left_bool) {
 						value_t right_value = evaluate_expression(expression.right, current_scope);
+						if (m_debug) {
+							std::cout << "Evaluating binary expression " << left_value << " " << expression.type << " " <<
+								right_value;
+						}
 						bool right_bool = right_value.as_bool(*this);
 						result_bool = right_bool;
 					}
-					auto bool_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Bool,
-						std::monostate{}));
+					else if (m_debug) {
+						std::cout << "Evaluating binary expression " << left_value << " " << expression.type <<
+							" (short-circuited)";
+					}
+					if (m_debug) {
+						std::cout << " => " << (result_bool ? "true" : "false") << "\n";
+					}
+					auto bool_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+						analysis::types::primitive_type::BOOL));
 					std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(1);
 					uint8_t byte_value = result_bool ? 1 : 0;
 					std::memcpy(mem->data(), &byte_value, 1);
@@ -539,29 +587,38 @@ namespace compiler::interpreter {
 				throw std::runtime_error("Assignment type mismatch");
 			}
 			// Copy right value to left value memory
-			uint32_t size = deduce_type_size(left_value.type);
+			uint32_t size = m_type_system.get_type_size(*left_value.type);
 			for (uint32_t i = 0; i < size; ++i) {
 				m_memory.data()[left_value.offset + i] = right_value.memory->at(right_value.offset + i);
+			}
+			if (m_debug) {
+				std::cout << "Evaluating binary expression " << left_value << " " << expression.type << " " << right_value <<
+					" => " << left_value << "\n";
 			}
 			return left_value;
 		}
 		if (expression.type == ast_expression_binary::type_t::ArraySubscript) {
 			int32_t index = right_value.as_int(*this);
-			if (left_value.type->type != ast_type_node::type_t::Array &&
-				left_value.type->type != ast_type_node::type_t::Pointer) {
+			if (left_value.type->kind != analysis::types::type_node::kind_t::ARRAY &&
+				left_value.type->kind != analysis::types::type_node::kind_t::POINTER) {
 				throw std::runtime_error("Left side of array subscript must be an array or pointer");
 			}
-			std::shared_ptr<ast_type_node> element_type;
-			if (left_value.type->type == ast_type_node::type_t::Array) {
-				element_type = std::get<ast_type_array>(left_value.type->value).base;
+			std::shared_ptr<analysis::types::type_node> element_type;
+			if (left_value.type->kind == analysis::types::type_node::kind_t::ARRAY) {
+				element_type = std::get<analysis::types::array_type>(left_value.type->value).element_type;
 			}
 			else {
 				// Pointer
-				element_type = std::get<ast_type_pointer>(left_value.type->value).base;
+				element_type = std::get<analysis::types::pointer_type>(left_value.type->value).pointee_type;
 			}
-			uint32_t element_size = deduce_type_size(element_type);
+			uint32_t element_size = m_type_system.get_type_size(*element_type);
 			uint32_t element_offset = left_value.offset + index * element_size;
-			return value_t(element_type, element_offset, left_value.memory);
+			value_t res(element_type, element_offset, left_value.memory);
+			if (m_debug) {
+				std::cout << "Evaluating binary expression " << left_value << " " << expression.type << " " << right_value;
+				std::cout << " => " << res << "\n";
+			}
+			return res;
 		}
 		// Handle other binary operations (arithmetic, comparison, bitwise)
 		switch (expression.type) {
@@ -578,8 +635,9 @@ namespace compiler::interpreter {
 				int32_t v1 = left_value.as_int(*this);
 				int32_t v2 = right_value.as_int(*this);
 				int32_t result;
-				auto int_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Int,
-					std::monostate{}));
+				auto int_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+					analysis::types::primitive_type::INT
+				));
 				std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(4);
 				switch (expression.type) {
 					case ast_expression_binary::type_t::Add:
@@ -622,17 +680,27 @@ namespace compiler::interpreter {
 						throw std::runtime_error("Unknown binary operator");
 				}
 				std::memcpy(mem->data(), &result, 4);
-				return value_t(int_type, 0, mem);
+				value_t res(int_type, 0, mem);
+				if (m_debug) {
+					std::cout << "Evaluating binary expression " << left_value << " " << expression.type << " " << right_value;
+					std::cout << " => " << res << "\n";
+				}
+				return res;
 			}
 			case ast_expression_binary::type_t::Equal:
 			case ast_expression_binary::type_t::NotEqual: {
 				bool result = left_value.data_equals(right_value, *this);
-				auto bool_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Bool,
-					std::monostate{}));
+				auto bool_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+					analysis::types::primitive_type::BOOL));
 				std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(1);
 				uint8_t byte_value = result == (expression.type == ast_expression_binary::type_t::Equal) ? 1 : 0;
 				std::memcpy(mem->data(), &byte_value, 1);
-				return value_t(bool_type, 0, mem);
+				value_t res(bool_type, 0, mem);
+				if (m_debug) {
+					std::cout << "Evaluating binary expression " << left_value << " " << expression.type << " " << right_value;
+					std::cout << " => " << res << "\n";
+				}
+				return res;
 			}
 			case ast_expression_binary::type_t::Less:
 			case ast_expression_binary::type_t::LessEqual:
@@ -657,12 +725,17 @@ namespace compiler::interpreter {
 					default:
 						throw std::runtime_error("Unknown comparison operator");
 				}
-				auto bool_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Bool,
-					std::monostate{}));
+				auto bool_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+					analysis::types::primitive_type::BOOL));
 				std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(1);
 				uint8_t byte_value = result ? 1 : 0;
 				std::memcpy(mem->data(), &byte_value, 1);
-				return value_t(bool_type, 0, mem);
+				value_t res(bool_type, 0, mem);
+				if (m_debug) {
+					std::cout << "Evaluating binary expression " << left_value << " " << expression.type << " " << right_value;
+					std::cout << " => " << res << "\n";
+				}
+				return res;
 			}
 			default:
 				throw std::runtime_error("Unknown binary operator");
@@ -675,58 +748,88 @@ namespace compiler::interpreter {
 			case ast_expression_unary::type_t::Negate: {
 				int32_t v = operand_value.as_int(*this);
 				int32_t result = -v;
-				auto int_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Int,
-					std::monostate{}));
+				auto int_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+					analysis::types::primitive_type::INT));
 				std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(4);
 				std::memcpy(mem->data(), &result, 4);
-				return value_t(int_type, 0, mem);
+				value_t res(int_type, 0, mem);
+				if (m_debug) {
+					std::cout << "Evaluating unary expression " << expression.type << " " << operand_value << " => " << res
+						<< "\n";
+				}
+				return res;
 			}
 			case ast_expression_unary::type_t::Positive: {
 				int32_t v = operand_value.as_int(*this);
 				int32_t result = +v;
-				auto int_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Int,
-					std::monostate{}));
+				auto int_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+					analysis::types::primitive_type::INT));
 				std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(4);
 				std::memcpy(mem->data(), &result, 4);
-				return value_t(int_type, 0, mem);
+				value_t res(int_type, 0, mem);
+				if (m_debug) {
+					std::cout << "Evaluating unary expression " << expression.type << " " << operand_value << " => " << res
+						<< "\n";
+				}
+				return res;
 			}
 			case ast_expression_unary::type_t::LogicalNot: {
 				bool v = operand_value.as_bool(*this);
 				bool result = !v;
-				auto bool_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Bool,
-					std::monostate{}));
+				auto bool_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+					analysis::types::primitive_type::BOOL));
 				std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(1);
 				uint8_t byte_value = result ? 1 : 0;
 				std::memcpy(mem->data(), &byte_value, 1);
-				return value_t(bool_type, 0, mem);
+				value_t res(bool_type, 0, mem);
+				if (m_debug) {
+					std::cout << "Evaluating unary expression " << expression.type << " " << operand_value << " => " << res
+						<< "\n";
+				}
+				return res;
 			}
 			case ast_expression_unary::type_t::BitwiseNot: {
 				int32_t v = operand_value.as_int(*this);
 				int32_t result = ~v;
-				auto int_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Int,
-					std::monostate{}));
+				auto int_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+					analysis::types::primitive_type::INT));
 				std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(4);
 				std::memcpy(mem->data(), &result, 4);
-				return value_t(int_type, 0, mem);
+				value_t res(int_type, 0, mem);
+				if (m_debug) {
+					std::cout << "Evaluating unary expression " << expression.type << " " << operand_value << " => " << res
+						<< "\n";
+				}
+				return res;
 			}
 			case ast_expression_unary::type_t::Dereference: {
 				return operand_value.dereference(*this);
 			}
 			case ast_expression_unary::type_t::AddressOf: {
-				auto ptr_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Pointer,
-					ast_type_pointer(operand_value.type)));
+				auto ptr_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+					analysis::types::pointer_type{operand_value.type}));
 				std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(4);
 				uint32_t addr = operand_value.offset;
 				std::memcpy(mem->data(), &addr, 4);
-				return value_t(ptr_type, 0, mem);
+				value_t res(ptr_type, 0, mem);
+				if (m_debug) {
+					std::cout << "Evaluating unary expression " << expression.type << " " << operand_value << " => " << res
+						<< "\n";
+				}
+				return res;
 			}
 			case ast_expression_unary::type_t::SizeOf: {
-				uint32_t size = deduce_type_size(operand_value.type);
-				auto int_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Int,
-					std::monostate{}));
+				uint32_t size = m_type_system.get_type_size(*operand_value.type);
+				auto int_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+					analysis::types::primitive_type::INT));
 				std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(4);
 				std::memcpy(mem->data(), &size, 4);
-				return value_t(int_type, 0, mem);
+				value_t res(int_type, 0, mem);
+				if (m_debug) {
+					std::cout << "Evaluating unary expression " << expression.type << " " << operand_value << " => " << res
+						<< "\n";
+				}
+				return res;
 			}
 			case ast_expression_unary::type_t::PostfixDecrement:
 			case ast_expression_unary::type_t::PostfixIncrement:
@@ -740,57 +843,56 @@ namespace compiler::interpreter {
 					expression.type == ast_expression_unary::type_t::PrefixDecrement;
 				value_t out_value;
 				// Get current value
-				const auto& resoled_type = resolve_type(*operand_value.type);
-				switch (operand_value.type->type) {
-					case ast_type_node::type_t::Int: {
-						int32_t v = operand_value.get_as<int32_t>();
-						int32_t new_value = v + (incr ? 1 : -1);
-						// Update the value in memory
-						operand_value.set_as<int32_t>(new_value);
-						if (pref) {
-							out_value = operand_value; // Return reference to modified value
+				const auto& resoled_type = m_type_system.unwrap_type(*operand_value.type);
+				if (resoled_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
+					switch (std::get<analysis::types::primitive_type>(resoled_type.value)) {
+						case analysis::types::primitive_type::BOOL:
+							throw std::runtime_error("Increment/decrement operator not supported for bool type");
+						case analysis::types::primitive_type::CHAR:
+						case analysis::types::primitive_type::INT: {
+							int32_t v = operand_value.get_as<int32_t>();
+							int32_t new_value = v + (incr ? 1 : -1);
+							// Update the value in memory
+							operand_value.set_as<int32_t>(new_value);
+							if (pref) {
+								out_value = operand_value; // Return reference to modified value
+							}
+							else {
+								// Return copy of original value
+								out_value = value_t::l_value(operand_value.type, *this);
+								out_value.set_as<int32_t>(v); // Set to original value
+							}
+							break;
 						}
-						else {
-							// Return copy of original value
-							out_value = value_t::l_value(operand_value.type, *this);
-						}
-						break;
+						case analysis::types::primitive_type::VOID:
+							throw std::runtime_error("Increment/decrement operator not supported for void type");
+						default:
+							throw std::runtime_error("Increment/decrement operator not supported for this primitive type");
 					}
-					case ast_type_node::type_t::Char: {
-						char v = operand_value.get_as<char>();
-						char new_value = v + (incr ? 1 : -1);
-						// Update the value in memory
-						operand_value.set_as<char>(new_value);
-						if (pref) {
-							out_value = operand_value; // Return reference to modified value
-						}
-						else {
-							// Return copy of original value
-							out_value = value_t::l_value(operand_value.type, *this);
-						}
-						break;
+				}
+				else if (operand_value.type->kind != analysis::types::type_node::kind_t::POINTER) {
+					uint32_t v = operand_value.get_as<uint32_t>();
+					auto pointer_type = std::get<analysis::types::pointer_type>(operand_value.type->value);
+					size_t base_size = std::max(
+						1ull, m_type_system.get_type_size(*pointer_type.pointee_type)); // At least 1 for void*
+					// Pointer arithmetic
+					uint32_t new_value = v + (incr ? base_size : -static_cast<int32_t>(base_size));
+					// Update the value in memory
+					operand_value.set_as<uint32_t>(new_value);
+					if (pref) {
+						out_value = operand_value; // Return reference to modified value
 					}
-					case ast_type_node::type_t::Bool:
-						throw std::runtime_error("Increment/decrement operator not supported for bool type");
-					case ast_type_node::type_t::Pointer: {
-						uint32_t v = operand_value.get_as<uint32_t>();
-						ast_type_pointer pointer_type = std::get<ast_type_pointer>(operand_value.type->value);
-						uint32_t base_size = std::max(deduce_type_size(pointer_type.base), 1u);
-						// Pointer arithmetic
-						uint32_t new_value = v + (incr ? base_size : -static_cast<int32_t>(base_size));
-						// Update the value in memory
-						operand_value.set_as<uint32_t>(new_value);
-						if (pref) {
-							out_value = operand_value; // Return reference to modified value
-						}
-						else {
-							// Return copy of original value
-							out_value = value_t::l_value(operand_value.type, *this);
-						}
-						break;
+					else {
+						// Return copy of original value
+						out_value = value_t::l_value(operand_value.type, *this);
 					}
-					default:
-						throw std::runtime_error("Increment/decrement operator not supported for this type");
+				}
+				else {
+					throw std::runtime_error("Increment/decrement operator not supported for this type");
+				}
+				if (m_debug) {
+					std::cout << "Evaluating unary expression " << expression.type << " " << operand_value << " => " << out_value
+						<< "\n";
 				}
 				return out_value;
 			}
@@ -806,24 +908,24 @@ namespace compiler::interpreter {
 				const auto& literal = std::get<ast_expression_literal>(expr->value);
 				switch (literal.type) {
 					case ast_expression_literal::type_t::Integer: {
-						auto int_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Int,
-							std::monostate{}));
+						auto int_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+							analysis::types::primitive_type::INT));
 						std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(4);
 						int32_t int_value = std::get<int>(literal.value);
 						std::memcpy(mem->data(), &int_value, 4);
 						return value_t(int_type, 0, mem);
 					}
 					case ast_expression_literal::type_t::Char: {
-						auto char_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Char,
-							std::monostate{}));
+						auto char_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+							analysis::types::primitive_type::CHAR));
 						std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(1);
 						char char_value = std::get<char>(literal.value);
 						std::memcpy(mem->data(), &char_value, 1);
 						return value_t(char_type, 0, mem);
 					}
 					case ast_expression_literal::type_t::Boolean: {
-						auto bool_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Bool,
-							std::monostate{}));
+						auto bool_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+							analysis::types::primitive_type::BOOL));
 						std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(1);
 						bool bool_value = std::get<bool>(literal.value);
 						uint8_t byte_value = bool_value ? 1 : 0;
@@ -831,8 +933,11 @@ namespace compiler::interpreter {
 						return value_t(bool_type, 0, mem);
 					}
 					case ast_expression_literal::type_t::Null: {
-						auto void_ptr_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Pointer,
-							ast_type_pointer(value_t::void_type_ptr)));
+						auto void_ptr_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(
+							analysis::types::pointer_type{
+								std::make_shared<analysis::types::type_node>(
+									analysis::types::primitive_type::VOID)
+							}));
 						std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(4);
 						uint32_t null_value = 0;
 						std::memcpy(mem->data(), &null_value, 4);
@@ -840,9 +945,9 @@ namespace compiler::interpreter {
 					}
 					case ast_expression_literal::type_t::String: {
 						/*const auto& str_value = std::get<std::string>(literal.value);
-						auto char_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Char,
+						auto char_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(analysis::types::type_node::kind_t::Char,
 							std::monostate{}));
-						auto array_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Array,
+						auto array_type = std::make_shared<analysis::types::type_node>(analysis::types::type_node(analysis::types::type_node::kind_t::Array,
 							ast_type_array(char_type, static_cast<uint32_t>(str_value.size() + 1))));
 						std::shared_ptr<std::vector<uint8_t>> mem =
 							std::make_shared<std::vector<uint8_t>>(static_cast<uint32_t>(str_value.size() + 1));
@@ -850,8 +955,8 @@ namespace compiler::interpreter {
 						mem->at(str_value.size()) = 0; // Null terminator
 						return value_t(array_type, 0, mem);*/
 						const uint32_t offset = load_literal(literal);
-						auto char_ptr_type = type_helpers::pointer_to(common_types::char_type);
-						return value_t::l_value(std::make_shared<ast_type_node>(char_ptr_type), offset, *this);
+						auto char_ptr_type = analysis::types::pointer_type(analysis::types::primitive_type::CHAR);
+						return value_t::l_value(std::make_shared<analysis::types::type_node>(char_ptr_type), offset, *this);
 					}
 					default:
 						throw std::runtime_error("Literal type not implemented in interpreter");
@@ -889,13 +994,14 @@ namespace compiler::interpreter {
 				arg_values.reserve(func_call.arguments.size());
 				for (size_t i = 0; i < func_call.arguments.size(); ++i) {
 					value_t arg_value = evaluate_expression(func_call.arguments[i], current_scope);
-					if (func_info.param_types[i]->type == ast_type_node::type_t::Pointer
-						&& arg_value.type->type == ast_type_node::type_t::Array
-						&& *std::get<ast_type_pointer>(func_info.param_types[i]->value).base ==
-						*std::get<ast_type_array>(arg_value.type->value).base) {
+					if (func_info.param_types[i]->kind == analysis::types::type_node::kind_t::POINTER
+						&& arg_value.type->kind == analysis::types::type_node::kind_t::ARRAY
+						&& m_type_system.is_equivalent(
+							*std::get<analysis::types::pointer_type>(func_info.param_types[i]->value).pointee_type,
+							*std::get<analysis::types::array_type>(arg_value.type->value).element_type)) {
 						// Allow array to pointer decay
-						auto ptr_type = std::make_shared<ast_type_node>(ast_type_node(ast_type_node::type_t::Pointer,
-							ast_type_pointer(std::get<ast_type_array>(arg_value.type->value).base)));
+						auto ptr_type = std::make_shared<analysis::types::type_node>(
+							analysis::types::pointer_type(std::get<analysis::types::array_type>(arg_value.type->value).element_type));
 						std::shared_ptr<std::vector<uint8_t>> mem = std::make_shared<std::vector<uint8_t>>(4);
 						uint32_t addr = arg_value.offset;
 						std::memcpy(mem->data(), &addr, 4);
@@ -948,6 +1054,9 @@ namespace compiler::interpreter {
 				else {
 					out_return_value = value_t(value_t::void_type_ptr, 0);
 				}
+				if (m_debug) {
+					std::cout << "Return statement with value: " << out_return_value << "\n";
+				}
 				return true; // Indicate that a return has occurred
 			}
 			case ast_statement_node::type_t::ExpressionStatement: {
@@ -960,14 +1069,15 @@ namespace compiler::interpreter {
 				if (current_scope->has_variable(var_decl.name, false)) {
 					throw std::runtime_error("Variable redeclaration: " + var_decl.name);
 				}
-				value_t var_value = allocate_variable(var_decl.var_type);
+				auto type = analysis::types::type_system::from_ast(*var_decl.var_type);
+				value_t var_value = allocate_variable(type);
 				if (var_decl.initializer) {
 					value_t init_value = evaluate_expression(var_decl.initializer, current_scope);
-					if (*init_value.type != *var_decl.var_type) {
+					if (!m_type_system.is_equivalent(*init_value.type, type)) {
 						throw std::runtime_error("Variable initializer type mismatch for variable: " + var_decl.name);
 					}
 					// Copy initializer value to allocated memory
-					uint32_t size = deduce_type_size(var_decl.var_type);
+					uint32_t size = m_type_system.get_type_size(type);
 					for (uint32_t i = 0; i < size; ++i) {
 						var_value.memory->at(var_value.offset + i) = init_value.memory->at(init_value.offset + i);
 					}
@@ -1019,6 +1129,10 @@ namespace compiler::interpreter {
 			}
 			case ast_statement_node::type_t::Unknown:
 				throw std::runtime_error("Unknown statement type");
+			case ast_statement_node::type_t::UnionDeclaration:
+				throw std::runtime_error("Union declarations are only allowed at the top level");
+			case ast_statement_node::type_t::TypeDeclaration:
+				throw std::runtime_error("Type declarations are only allowed at the top level");
 		}
 		return false; // Should not reach here
 	}
@@ -1039,13 +1153,19 @@ namespace compiler::interpreter {
 		}
 		return returned;
 	}
-	value_t ast_interpreter::allocate_variable(const std::shared_ptr<ast_type_node>& type) {
-		uint32_t size = deduce_type_size(type);
+	value_t ast_interpreter::allocate_variable(const analysis::types::type_node& type) {
+		uint32_t size = m_type_system.get_type_size(type);
+		uint32_t offset = m_memory.allocate(size);
+		auto type_ptr = std::make_shared<analysis::types::type_node>(type);
+		return value_t(type_ptr, offset, m_memory.memory);
+	}
+	value_t ast_interpreter::allocate_variable(const std::shared_ptr<analysis::types::type_node>& type) {
+		uint32_t size = m_type_system.get_type_size(*type);
 		uint32_t offset = m_memory.allocate(size);
 		return value_t(type, offset, m_memory.memory);
 	}
 	void ast_interpreter::deallocate_variable(const value_t& var) {
-		uint32_t size = deduce_type_size(var.type);
+		uint32_t size = m_type_system.get_type_size(*var.type);
 		m_memory.deallocate(var.offset, size);
 	}
 } // compiler::interpreter

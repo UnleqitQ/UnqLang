@@ -1,3 +1,4 @@
+#include <chrono>
 #include <iostream>
 #include <typeinfo>
 #include <type_traits>
@@ -7,7 +8,6 @@
 #include "compiler/ast_helpers.hpp"
 #include "compiler/ast_interpreter.hpp"
 #include "compiler/compiler.hpp"
-
 
 
 template<typename T>
@@ -77,6 +77,7 @@ int main(int n, int d, int e) {
 	return 0;
 }
 )";
+	std::chrono::high_resolution_clock::time_point start_time = std::chrono::high_resolution_clock::now();
 	std::cout << "Source Code:\n" << source_code << std::endl;
 	auto tokens = compiler::run_lexer(source_code);
 	std::vector<compiler::lexer_token> filtered_tokens;
@@ -95,22 +96,20 @@ int main(int n, int d, int e) {
 		return 1;
 	}
 	program.print();
-	/*compiler::Compiler compiler (program);
-	compiler.analyze_functions();
-	compiler.m_functions["multi_fibonacci"].print();*/
 	compiler::interpreter::ast_interpreter interpreter;
 
 	// Register external functions
 	// puts(char*): void
 	// puti(int): void
-	std::vector<std::string> output_buffer;
-	{
+	std::vector<std::string> output_buffer; {
 		interpreter.register_external_function(compiler::interpreter::external_function{
 			"puts",
-			compiler::common_types::void_type_ptr,
+			std::make_shared<compiler::analysis::types::type_node>(compiler::analysis::types::primitive_type::VOID),
 			{
-				std::make_shared<compiler::ast_type_node>(
-					compiler::type_helpers::pointer_to(compiler::common_types::char_type_ptr)),
+				std::make_shared<compiler::analysis::types::type_node>(
+					compiler::analysis::types::pointer_type{
+						compiler::analysis::types::primitive_type::CHAR
+					})
 			},
 			[&output_buffer](const std::vector<compiler::interpreter::value_t>& args,
 			compiler::interpreter::ast_interpreter& interpreter) -> compiler::interpreter::value_t {
@@ -118,9 +117,12 @@ int main(int n, int d, int e) {
 					throw std::runtime_error("puts expects 1 argument");
 				}
 				const auto& str_value = args[0];
-				if (str_value.type->type != compiler::ast_type_node::type_t::Pointer ||
-					std::get<compiler::ast_type_pointer>(str_value.type->value).base->type !=
-					compiler::ast_type_node::type_t::Char) {
+				if (str_value.type->kind != compiler::analysis::types::type_node::kind_t::POINTER ||
+					std::get<compiler::analysis::types::pointer_type>(str_value.type->value).pointee_type->kind !=
+					compiler::analysis::types::type_node::kind_t::PRIMITIVE ||
+					std::get<compiler::analysis::types::primitive_type>(
+						std::get<compiler::analysis::types::pointer_type>(str_value.type->value)
+						.pointee_type->value) != compiler::analysis::types::primitive_type::CHAR) {
 					throw std::runtime_error("puts expects a char pointer");
 				}
 				uint32_t ptr = str_value.get_as<uint32_t>();
@@ -135,15 +137,17 @@ int main(int n, int d, int e) {
 					++ptr;
 				}
 				output_buffer.push_back(output);
-				return compiler::interpreter::value_t::l_value(compiler::common_types::void_type_ptr, interpreter);
+				return compiler::interpreter::value_t::l_value(
+					{compiler::analysis::types::primitive_type::VOID},
+					interpreter);
 			}
 		});
 
 		interpreter.register_external_function(compiler::interpreter::external_function{
 			"puti",
-			compiler::common_types::void_type_ptr,
+			std::make_shared<compiler::analysis::types::type_node>(compiler::analysis::types::primitive_type::VOID),
 			{
-				compiler::common_types::int_type_ptr,
+				std::make_shared<compiler::analysis::types::type_node>(compiler::analysis::types::primitive_type::INT)
 			},
 			[&output_buffer](const std::vector<compiler::interpreter::value_t>& args,
 			compiler::interpreter::ast_interpreter& interpreter) -> compiler::interpreter::value_t {
@@ -151,12 +155,16 @@ int main(int n, int d, int e) {
 					throw std::runtime_error("puti expects 1 argument");
 				}
 				const auto& int_value = args[0];
-				if (int_value.type->type != compiler::ast_type_node::type_t::Int) {
+				if (int_value.type->kind != compiler::analysis::types::type_node::kind_t::PRIMITIVE ||
+					std::get<compiler::analysis::types::primitive_type>(int_value.type->value) !=
+					compiler::analysis::types::primitive_type::INT) {
 					throw std::runtime_error("puti expects an int");
 				}
 				int32_t value = int_value.get_as<int32_t>();
 				output_buffer.push_back(std::to_string(value));
-				return compiler::interpreter::value_t::l_value(compiler::common_types::void_type_ptr, interpreter);
+				return compiler::interpreter::value_t::l_value(
+					{compiler::analysis::types::primitive_type::VOID},
+					interpreter);
 			}
 		});
 	}
@@ -186,6 +194,9 @@ int main(int n, int d, int e) {
 		std::cerr << "Error executing program: " << e.what() << std::endl;
 		return 1;
 	}
+	std::chrono::high_resolution_clock::time_point end_time = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double, std::milli> exec_time = end_time - start_time;
+	std::cout << "Execution time: " << exec_time.count() << " ms" << std::endl;
 	std::cout << "Program returned: " << result.as_int(interpreter) << std::endl;
 	for (const auto& out : output_buffer) {
 		std::cout << out;
