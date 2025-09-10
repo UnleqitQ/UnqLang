@@ -15,6 +15,7 @@ add_library(MiscMachineLib
 	src/unqlang/ast_interpreter.cpp
 	src/unqlang/ast.cpp
 	src/unqlang/compiler/function.cpp
+	src/unqlang/compiler/scope.cpp
 	src/unqlang/compiler/variable.cpp
 	src/unqlang/lexer.cpp
 )
