@@ -379,6 +379,8 @@ namespace assembly {
 	void retrieve_labels(const assembly_program_t& assembly_program, std::unordered_map<std::string, uint32_t>& label_map,
 		bool byte_addressing,
 		uint32_t start_address = 0);
-	machine::simple_program_t assemble(const assembly_program_t& assembly_program, bool byte_addressing,
+	machine::simple_program_t assemble_simple(const assembly_program_t& assembly_program, bool byte_addressing,
+		uint32_t start_address = 0);
+	machine::program_t assemble(const assembly_program_t& assembly_program, bool byte_addressing,
 		uint32_t start_address = 0);
 } // assembly

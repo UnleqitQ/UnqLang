@@ -233,7 +233,7 @@ namespace assembly {
 		}
 	}
 
-	machine::simple_program_t assemble(const assembly_program_t& assembly_program,
+	machine::simple_program_t assemble_simple(const assembly_program_t& assembly_program,
 		bool byte_addressing,
 		uint32_t start_address) {
 		machine::simple_program_t program;
@@ -243,9 +243,32 @@ namespace assembly {
 		for (const auto& comp : assembly_program) {
 			if (comp.component_type == assembly_component::type::INSTRUCTION) {
 				const auto& inst = std::get<assembly_instruction>(comp.value);
-				program.push_back(assemble_instruction(inst, label_map));
+				program.emplace_back(assemble_instruction(inst, label_map));
+			}
+			else if (comp.component_type == assembly_component::type::RAW_DATA) {
+				throw std::runtime_error("Unsupported raw data in simple assembly");
 			}
 		}
 		return program;
 	}
+	machine::program_t assemble(const assembly_program_t& assembly_program,
+		bool byte_addressing,
+		uint32_t start_address) {
+		machine::program_t program;
+		std::unordered_map<std::string, uint32_t> label_map;
+		retrieve_labels(assembly_program, label_map, byte_addressing, start_address);
+		program.reserve(assembly_program.size() - label_map.size());
+		for (const auto& comp : assembly_program) {
+			if (comp.component_type == assembly_component::type::INSTRUCTION) {
+				const auto& inst = std::get<assembly_instruction>(comp.value);
+				program.emplace_back(assemble_instruction(inst, label_map));
+			}
+			else if (comp.component_type == assembly_component::type::RAW_DATA) {
+				const auto& data = std::get<std::vector<uint8_t>>(comp.value);
+				program.emplace_back(data);
+			}
+		}
+		return program;
+	}
+
 }
