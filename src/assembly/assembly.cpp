@@ -25,7 +25,7 @@ namespace assembly {
 	std::string assembly_memory::to_string() const {
 		switch (memory_type) {
 			case type::DIRECT:
-				return std::format("[{}]", "std::get<assembly_literal>(value).to_string(true)");
+				return std::format("[{}]", std::get<assembly_literal>(value).to_string(true));
 			case type::REGISTER:
 				return std::format("[{}]", std::get<machine::register_t>(value).to_string());
 			case type::DISPLACEMENT: {
@@ -56,6 +56,7 @@ namespace assembly {
 		return "";
 	}
 
+
 	uint32_t resolve_literal(const assembly_literal& lit,
 		const std::unordered_map<std::string, uint32_t>& label_map) {
 		switch (lit.literal_type) {
@@ -77,24 +78,24 @@ namespace assembly {
 		switch (mem.memory_type) {
 			case assembly_memory::type::DIRECT: {
 				const auto addr = resolve_literal(std::get<assembly_literal>(mem.value), label_map);
-				return machine::memory_operand(addr, mem.size);
+				return machine::memory_operand(addr);
 			}
 			case assembly_memory::type::REGISTER: {
 				const auto reg = std::get<machine::register_t>(mem.value);
-				return machine::memory_operand(reg, mem.size);
+				return machine::memory_operand(reg);
 			}
 			case assembly_memory::type::DISPLACEMENT: {
 				const auto disp = std::get<assembly_memory::displacement>(mem.value);
 				const auto base = disp.reg;
 				const auto offset = resolve_literal(disp.disp, label_map);
-				return machine::memory_operand(base, static_cast<int32_t>(offset), mem.size);
+				return machine::memory_operand(base, static_cast<int32_t>(offset));
 			}
 			case assembly_memory::type::SCALED_INDEX: {
 				const auto si = std::get<assembly_memory::scaled_index>(mem.value);
 				const auto base = si.base;
 				const auto index = si.index;
 				const auto scale = si.scale;
-				return machine::memory_operand(base, index, scale, mem.size);
+				return machine::memory_operand(base, index, scale);
 			}
 			case assembly_memory::type::SCALED_INDEX_DISPLACEMENT: {
 				const auto sid = std::get<assembly_memory::scaled_index_displacement>(mem.value);
@@ -102,7 +103,7 @@ namespace assembly {
 				const auto index = sid.index;
 				const auto scale = sid.scale;
 				const auto offset = resolve_literal(sid.disp, label_map);
-				return machine::memory_operand(base, index, scale, static_cast<int32_t>(offset), mem.size);
+				return machine::memory_operand(base, index, scale, static_cast<int32_t>(offset));
 			}
 		}
 		throw std::runtime_error("Unknown memory type");
@@ -114,8 +115,8 @@ namespace assembly {
 				const auto reg = std::get<machine::register_t>(res.value);
 				return machine::result_arg{machine::result_arg::type_t::REGISTER, {.reg = reg}};
 			}
-			case assembly_result::type::MEMORY: {
-				const auto mem = std::get<assembly_memory>(res.value);
+			case assembly_result::type::MEMORY_POINTER: {
+				const auto mem = std::get<assembly_memory_pointer>(res.value);
 				return machine::result_arg{machine::result_arg::type_t::MEMORY, {.mem = assemble_memory(mem, label_map)}};
 			}
 		}
@@ -133,7 +134,7 @@ namespace assembly {
 				const auto imm = resolve_literal(lit, label_map);
 				return machine::operand_arg{machine::operand_arg::type_t::IMMEDIATE, {.imm = static_cast<int32_t>(imm)}};
 			}
-			case assembly_operand::type::MEMORY: {
+			case assembly_operand::type::MEMORY_POINTER: {
 				const auto mem = std::get<assembly_memory>(op.value);
 				return machine::operand_arg{machine::operand_arg::type_t::MEMORY, {.mem = assemble_memory(mem, label_map)}};
 			}

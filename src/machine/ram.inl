@@ -38,3 +38,25 @@ namespace machine {
 		return os;
 	}
 }
+
+template<>
+struct std::formatter<machine::data_size_t> : std::formatter<std::string> {
+	auto format(const machine::data_size_t& ds, auto& ctx) const {
+		std::string str;
+		switch (ds) {
+			case machine::data_size_t::BYTE:
+				str = "byte";
+				break;
+			case machine::data_size_t::WORD:
+				str = "word";
+				break;
+			case machine::data_size_t::DWORD:
+				str = "dword";
+				break;
+			default:
+				str = "unknown";
+				break;
+		}
+		return std::formatter<std::string>::format(str, ctx);
+	}
+};

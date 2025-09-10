@@ -232,9 +232,9 @@ namespace assembly {
 			is_token_type(assembly_token::type::REGISTER).map<assembly_parse_component>([](const assembly_token& tok) {
 				return assembly_parse_component{machine::register_t::from_string(tok.text)};
 			}, "to_component");
-		const Parser<assembly_token, assembly_parse_component> data_size_parser =
-			is_token_type(assembly_token::type::DATA_SIZE).map<assembly_parse_component>([](const assembly_token& tok) {
-				return assembly_parse_component{machine::data_size_from_string(tok.text)};
+		const Parser<assembly_token, machine::data_size_t> data_size_parser =
+			is_token_type(assembly_token::type::DATA_SIZE).map<machine::data_size_t>([](const assembly_token& tok) {
+				return machine::data_size_from_string(tok.text);
 			}, "to_component");
 		const Parser<assembly_token, assembly_parse_component> number_literal_parser =
 
@@ -370,13 +370,21 @@ namespace assembly {
 					base_mem.value);
 				return assembly_memory(si.base, si.index, si.scale, disp_lit);
 			}, "to_memory");
-		const Parser<assembly_token, assembly_parse_component> memory_parser =
+		const Parser<assembly_token, assembly_memory> memory_parser_raw =
 		(is_token_type(assembly_token::type::LEFT_BRACKET) >
 			(scaled_index_displacement_memory_parser || scaled_index_memory_parser || displacement_memory_parser ||
 				register_memory_parser || direct_memory_parser) <
-			is_token_type(assembly_token::type::RIGHT_BRACKET)).map<assembly_parse_component>(
-			[](const assembly_memory& mem) {
+			is_token_type(assembly_token::type::RIGHT_BRACKET));
+		const Parser<assembly_token, assembly_parse_component> memory_parser =
+			memory_parser_raw.map<assembly_parse_component>([](const assembly_memory& mem) {
 				return assembly_parse_component{mem};
+			}, "to_component");
+		const Parser<assembly_token, assembly_parse_component> memory_ptr_parser =
+			((data_size_parser < is_token_type(assembly_token::type::PTR)) + memory_parser_raw).map<
+				assembly_parse_component>([](const std::pair<machine::data_size_t, assembly_memory>& parts) {
+				assembly_memory mem = parts.second;
+				machine::data_size_t size = parts.first;
+				return assembly_parse_component{assembly_memory_pointer{size, mem}};
 			}, "to_component");
 		const Parser<assembly_token, assembly_parse_component> newline_parser =
 			(+is_token_type(assembly_token::type::NEWLINE)).map<assembly_parse_component>([](const auto& /*nls*/) {
@@ -392,9 +400,9 @@ namespace assembly {
 				return assembly_parse_component{assembly_parse_component::type::COMMA};
 			}, "to_component");
 		const Parser<assembly_token, assembly_parse_component> assembly_component_parser =
-		(instruction_parser || register_parser || data_size_parser || label_parser || literal_parser ||
-			label_definition_parser
-			|| memory_parser || newline_parser || end_of_file_parser || comma_parser);
+		(instruction_parser || register_parser || label_parser || literal_parser ||
+			label_definition_parser || memory_parser || memory_ptr_parser || newline_parser ||
+			end_of_file_parser || comma_parser);
 		const Parser<assembly_token, std::vector<assembly_parse_component>> component_list_parser =
 			+assembly_component_parser;
 	} // namespace component_parser
@@ -427,9 +435,6 @@ namespace assembly {
 				case assembly_parse_component::type::REGISTER:
 					type_name = "REGISTER";
 					break;
-				case assembly_parse_component::type::DATA_SIZE:
-					type_name = "DATA_SIZE";
-					break;
 				case assembly_parse_component::type::LITERAL:
 					type_name = "LITERAL";
 					break;
@@ -438,6 +443,9 @@ namespace assembly {
 					break;
 				case assembly_parse_component::type::MEMORY:
 					type_name = "MEMORY";
+					break;
+				case assembly_parse_component::type::MEMORY_POINTER:
+					type_name = "MEMORY_POINTER";
 					break;
 				case assembly_parse_component::type::NEWLINE:
 					type_name = "NEWLINE";
@@ -467,175 +475,66 @@ namespace assembly {
 				[](const assembly_parse_component& comp) {
 					return assembly_operand{std::get<assembly_literal>(comp.value)};
 				}, "to_operand") ||
-			is_component_type(assembly_parse_component::type::MEMORY).map<assembly_operand>(
+			is_component_type(assembly_parse_component::type::MEMORY_POINTER).map<assembly_operand>(
 				[](const assembly_parse_component& comp) {
-					return assembly_operand{std::get<assembly_memory>(comp.value)};
+					return assembly_operand{std::get<assembly_memory_pointer>(comp.value)};
 				}, "to_operand");
 		const Parser<assembly_parse_component, assembly_result> result_parser =
 			is_component_type(assembly_parse_component::type::REGISTER).map<assembly_result>(
 				[](const assembly_parse_component& comp) {
 					return assembly_result{std::get<machine::register_t>(comp.value)};
 				}, "to_result") ||
-			is_component_type(assembly_parse_component::type::MEMORY).map<assembly_result>(
+			is_component_type(assembly_parse_component::type::MEMORY_POINTER).map<assembly_result>(
 				[](const assembly_parse_component& comp) {
 					return assembly_result{
-						std::get<assembly_memory>(comp.value)
+						std::get<assembly_memory_pointer>(comp.value)
 					};
 				}, "to_result");
 
 
-		// Parsers for different argument patterns (0-2 operands, with/without result)
+		// Parsers for different argument patterns (0-2 operands, with/without result, and memory-result)
 
 		const Parser<assembly_parse_component, assembly_instruction::args_t<0, false>> args_0n_parser =
 			succeed<assembly_parse_component, assembly_instruction::args_t<0, false>>(
 				assembly_instruction::args_t<0, false>{});
 
 		const Parser<assembly_parse_component, assembly_instruction::args_t<0, true>> args_0r_parser =
-			((~is_component_type(assembly_parse_component::type::DATA_SIZE)) + result_parser).map<
-				assembly_instruction::args_t<0, true>>(
-				[](const std::pair<std::optional<assembly_parse_component>, assembly_result>& parts) {
-					if (parts.second.result_type == assembly_result::type::MEMORY) {
-						if (!parts.first.has_value()) {
-							throw std::invalid_argument("Memory data size not specified and cannot be inferred");
-						}
-						machine::data_size_t ds = std::get<machine::data_size_t>(parts.first->value);
-						return assembly_instruction::args_t<0, true>{
-							{}, assembly_result{
-								std::get<assembly_memory>(parts.second.value).with_size(ds)
-							}
-						};
-					}
-					return assembly_instruction::args_t<0, true>{{}, parts.second};
+			result_parser
+			.map<assembly_instruction::args_t<0, true>>(
+				[](const auto& parts) {
+					return assembly_instruction::args_t<0, true>{{}, parts};
 				}, "to_args");
 
 		const Parser<assembly_parse_component, assembly_instruction::args_t<1, false>> args_1n_parser =
-			((~is_component_type(assembly_parse_component::type::DATA_SIZE)) + operand_parser).map<
-				assembly_instruction::args_t<1, false>>(
-				[](const std::pair<std::optional<assembly_parse_component>, assembly_operand>& parts) {
-					if (parts.second.operand_type == assembly_operand::type::MEMORY) {
-						if (!parts.first.has_value()) {
-							throw std::invalid_argument("Memory data size not specified and cannot be inferred");
-						}
-						machine::data_size_t ds = std::get<machine::data_size_t>(parts.first->value);
-						return assembly_instruction::args_t<1, false>{
-							{assembly_operand{std::get<assembly_memory>(parts.second.value).with_size(ds)}}
-						};
-					}
-					return assembly_instruction::args_t<1, false>{{parts.second}};
+			operand_parser
+			.map<assembly_instruction::args_t<1, false>>(
+				[](const auto& parts) {
+					return assembly_instruction::args_t<1, false>{{parts}};
 				}, "to_args");
 
-		machine::data_size_t infer_size_from_register(const machine::register_t& reg) {
-			switch (reg.access) {
-				case machine::register_access::dword:
-					return machine::data_size_t::DWORD;
-				case machine::register_access::word:
-					return machine::data_size_t::WORD;
-				case machine::register_access::high_byte:
-				case machine::register_access::low_byte:
-					return machine::data_size_t::BYTE;
-				default:
-					throw std::invalid_argument("Unknown register size");
-			}
-		}
-		machine::data_size_t max_data_size(machine::data_size_t a, machine::data_size_t b) {
-			if (a == machine::data_size_t::DWORD || b == machine::data_size_t::DWORD) {
-				return machine::data_size_t::DWORD;
-			}
-			if (a == machine::data_size_t::WORD || b == machine::data_size_t::WORD) {
-				return machine::data_size_t::WORD;
-			}
-			return machine::data_size_t::BYTE;
-		}
-
-		assembly_instruction::args_t<1, true> parse_args_1r(std::optional<machine::data_size_t> ds, assembly_result result,
-			assembly_operand operand) {
-			if (result.result_type == assembly_result::type::MEMORY) {
-				if (ds.has_value()) {
-					result = assembly_result{std::get<assembly_memory>(result.value).with_size(ds.value())};
-				}
-				else {
-					// Infer size from operand if it's a register
-					if (operand.operand_type == assembly_operand::type::MEMORY ||
-						operand.operand_type == assembly_operand::type::LITERAL) {
-						throw std::invalid_argument(
-							"Memory data size not specified and cannot be inferred");
-					}
-					machine::data_size_t inferred_size = infer_size_from_register(std::get<machine::register_t>(operand.value));
-					result = assembly_result{std::get<assembly_memory>(result.value).with_size(inferred_size)};
-				}
-			}
-			if (operand.operand_type == assembly_operand::type::MEMORY) {
-				if (ds.has_value()) {
-					operand = assembly_operand{std::get<assembly_memory>(operand.value).with_size(ds.value())};
-				}
-				else {
-					// Infer size from result, which definitely is a register
-					machine::data_size_t inferred_size = infer_size_from_register(std::get<machine::register_t>(result.value));
-					operand = assembly_operand{std::get<assembly_memory>(operand.value).with_size(inferred_size)};
-				}
-			}
-			return assembly_instruction::args_t<1, true>{{operand}, result};
-		}
 		const Parser<assembly_parse_component, assembly_instruction::args_t<1, true>> args_1r_parser =
-		((~is_component_type(assembly_parse_component::type::DATA_SIZE)) + result_parser + (is_component_type(
-				assembly_parse_component::type::COMMA)
-			> operand_parser)).map<assembly_instruction::args_t<1, true>>(
-			[](const std::pair<std::pair<std::optional<assembly_parse_component>, assembly_result>, assembly_operand>&
-			parts) {
-				auto dsc = parts.first.first;
-				std::optional<machine::data_size_t> ds = std::nullopt;
-				if (dsc.has_value()) {
-					ds = std::get<machine::data_size_t>(dsc->value);
-				}
-				return parse_args_1r(ds, parts.first.second, parts.second);
-			});
+			(result_parser + (is_component_type(assembly_parse_component::type::COMMA) >
+				operand_parser))
+			.map<assembly_instruction::args_t<1, true>>(
+				[](const auto& parts) {
+					return assembly_instruction::args_t<1, true>{{parts.second}, parts.first};
+				}, "to_args");
 
-		assembly_instruction::args_t<2, false> parse_args_2n(std::optional<machine::data_size_t> ds,
-			assembly_operand op1, assembly_operand op2) {
-			if (op1.operand_type == assembly_operand::type::MEMORY) {
-				if (ds.has_value()) {
-					op1 = assembly_operand{std::get<assembly_memory>(op1.value).with_size(ds.value())};
-				}
-				else {
-					// Infer size from op2 if it's a register
-					if (op2.operand_type == assembly_operand::type::MEMORY ||
-						op2.operand_type == assembly_operand::type::LITERAL) {
-						throw std::invalid_argument(
-							"Memory data size not specified and cannot be inferred");
-					}
-					machine::data_size_t inferred_size = infer_size_from_register(std::get<machine::register_t>(op2.value));
-					op1 = assembly_operand{std::get<assembly_memory>(op1.value).with_size(inferred_size)};
-				}
-			}
-			if (op2.operand_type == assembly_operand::type::MEMORY) {
-				if (ds.has_value()) {
-					op2 = assembly_operand{std::get<assembly_memory>(op2.value).with_size(ds.value())};
-				}
-				else {
-					// Infer size from op1 if it's a register
-					if (op1.operand_type == assembly_operand::type::MEMORY ||
-						op1.operand_type == assembly_operand::type::LITERAL) {
-						throw std::invalid_argument(
-							"Memory data size not specified and cannot be inferred");
-					}
-					machine::data_size_t inferred_size = infer_size_from_register(std::get<machine::register_t>(op1.value));
-					op2 = assembly_operand{std::get<assembly_memory>(op2.value).with_size(inferred_size)};
-				}
-			}
-			return assembly_instruction::args_t<2, false>{{op1, op2}};
-		}
 		const Parser<assembly_parse_component, assembly_instruction::args_t<2, false>> args_2n_parser =
-		((~is_component_type(assembly_parse_component::type::DATA_SIZE)) + operand_parser + (is_component_type(
-				assembly_parse_component::type::COMMA)
-			> operand_parser)).map<assembly_instruction::args_t<2, false>>(
-			[](const auto& parts) {
-				auto dsc = parts.first.first;
-				std::optional<machine::data_size_t> ds = std::nullopt;
-				if (dsc.has_value()) {
-					ds = std::get<machine::data_size_t>(dsc->value);
-				}
-				return parse_args_2n(ds, parts.first.second, parts.second);
-			}, "to_args");
+			(operand_parser + (is_component_type(assembly_parse_component::type::COMMA) >
+				operand_parser))
+			.map<assembly_instruction::args_t<2, false>>(
+				[](const auto& parts) {
+					return assembly_instruction::args_t<2, false>{{parts.first, parts.second}};
+				}, "to_args");
+		const Parser<assembly_parse_component, assembly_instruction::args_mr_t> args_mr_parser =
+			(result_parser + (is_component_type(assembly_parse_component::type::COMMA) >
+				is_component_type(assembly_parse_component::type::MEMORY)))
+			.map<assembly_instruction::args_mr_t>(
+				[](const auto& parts) {
+					const auto& mem_comp = std::get<assembly_memory>(parts.second.value);
+					return assembly_instruction::args_mr_t{mem_comp, parts.first};
+				}, "to_args");
 
 		const std::vector<machine::operation> operations_0n = {
 			machine::operation::NOP,
@@ -682,7 +581,6 @@ namespace assembly {
 		};
 		const std::vector<machine::operation> operations_1r = {
 			machine::operation::MOV,
-			machine::operation::LEA,
 			machine::operation::ADD,
 			machine::operation::SUB,
 			machine::operation::MUL,
@@ -707,6 +605,10 @@ namespace assembly {
 		const std::vector<machine::operation> operations_2n = {
 			machine::operation::CMP,
 			machine::operation::TEST,
+		};
+		// Special case: LEA only with memory operand
+		const std::vector<machine::operation> operations_mr = {
+			machine::operation::LEA,
 		};
 		Parser<assembly_parse_component, assembly_parse_component> is_instruction_of_type(
 			const std::vector<machine::operation>& ops) {
@@ -740,7 +642,7 @@ namespace assembly {
 				[](const std::pair<assembly_parse_component, assembly_instruction::args_t<1, true>>& parts) {
 					if (std::get<machine::operation>(parts.first.value) == machine::operation::LEA) {
 						// LEA requires the operand to be memory
-						if (parts.second.operands[0].operand_type != assembly_operand::type::MEMORY) {
+						if (parts.second.operands[0].operand_type != assembly_operand::type::MEMORY_POINTER) {
 							throw std::invalid_argument("LEA instruction requires a memory operand");
 						}
 					}
@@ -748,6 +650,10 @@ namespace assembly {
 				}, "to_instruction")
 			|| (is_instruction_of_type(operations_2n) + args_2n_parser).map<assembly_instruction>(
 				[](const std::pair<assembly_parse_component, assembly_instruction::args_t<2, false>>& parts) {
+					return assembly_instruction{std::get<machine::operation>(parts.first.value), parts.second};
+				}, "to_instruction")
+			|| (is_instruction_of_type(operations_mr) + args_mr_parser).map<assembly_instruction>(
+				[](const std::pair<assembly_parse_component, assembly_instruction::args_mr_t>& parts) {
 					return assembly_instruction{std::get<machine::operation>(parts.first.value), parts.second};
 				}, "to_instruction"));
 		Parser<assembly_parse_component, std::string> label_parser =
@@ -853,14 +759,14 @@ namespace assembly {
 				return std::format("INSTRUCTION({})", machine::operation_to_string(std::get<machine::operation>(value)));
 			case type::REGISTER:
 				return std::format("REGISTER({})", std::get<machine::register_t>(value).to_string());
-			case type::DATA_SIZE:
-				return std::format("DATA_SIZE({})", static_cast<int>(std::get<machine::data_size_t>(value)));
 			case type::LITERAL:
 				return std::format("LITERAL({})", std::get<assembly_literal>(value).to_string());
 			case type::LABEL:
 				return std::format("LABEL({})", std::get<std::string>(value));
 			case type::MEMORY:
 				return std::format("MEMORY({})", std::get<assembly_memory>(value).to_string());
+			case type::MEMORY_POINTER:
+				return std::format("MEMORY_POINTER({})", std::get<assembly_memory_pointer>(value).to_string());
 			case type::NEWLINE:
 				return "NEWLINE";
 			case type::END_OF_FILE:

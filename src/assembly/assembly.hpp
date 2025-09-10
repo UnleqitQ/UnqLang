@@ -53,7 +53,6 @@ namespace assembly {
 		};
 		type memory_type;
 		std::variant<assembly_literal, machine::register_t, displacement, scaled_index, scaled_index_displacement> value;
-		machine::data_size_t size = machine::data_size_t::DWORD; // Default to DWORD
 		explicit assembly_memory(assembly_literal lit)
 			: memory_type(type::DIRECT), value(lit) {
 		}
@@ -69,26 +68,35 @@ namespace assembly {
 		assembly_memory(machine::register_t base, machine::register_t index, int8_t scale, assembly_literal disp)
 			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value(scaled_index_displacement{base, index, scale, disp}) {
 		}
-		assembly_memory with_size(machine::data_size_t sz) const {
-			assembly_memory mem = *this;
-			mem.size = sz;
-			return mem;
-		}
 		std::string to_string() const;
 		friend std::ostream& operator<<(std::ostream& os, const assembly_memory& mem) {
 			return os << mem.to_string();
+		}
+	};
+	struct assembly_memory_pointer {
+		machine::data_size_t size;
+		assembly_memory mem;
+		assembly_memory_pointer(machine::data_size_t sz, assembly_memory m)
+			: size(sz), mem(m) {
+		}
+		std::string to_string() const {
+			return std::format("{} ptr {}", size, mem.to_string());
+		}
+		friend std::ostream& operator<<(std::ostream& os, const assembly_memory_pointer& ptr) {
+			os << ptr.size << " ptr " << ptr.mem;
+			return os;
 		}
 	};
 	struct assembly_operand {
 		enum class type : uint8_t {
 			REGISTER,
 			LITERAL,
-			MEMORY
+			MEMORY_POINTER
 		} operand_type;
 		std::variant<
 			machine::register_t,
 			assembly_literal,
-			assembly_memory
+			assembly_memory_pointer
 		> value;
 
 		explicit assembly_operand(machine::register_t reg)
@@ -97,8 +105,8 @@ namespace assembly {
 		explicit assembly_operand(assembly_literal lit)
 			: operand_type(type::LITERAL), value(lit) {
 		}
-		explicit assembly_operand(assembly_memory mem)
-			: operand_type(type::MEMORY), value(mem) {
+		explicit assembly_operand(assembly_memory_pointer mem)
+			: operand_type(type::MEMORY_POINTER), value(mem) {
 		}
 		friend std::ostream& operator<<(std::ostream& os, const assembly_operand& op) {
 			switch (op.operand_type) {
@@ -108,8 +116,8 @@ namespace assembly {
 				case type::LITERAL:
 					os << std::get<assembly_literal>(op.value);
 					break;
-				case type::MEMORY:
-					os << std::get<assembly_memory>(op.value);
+				case type::MEMORY_POINTER:
+					os << std::get<assembly_memory_pointer>(op.value);
 					break;
 			}
 			return os;
@@ -118,26 +126,26 @@ namespace assembly {
 	struct assembly_result {
 		enum class type : uint8_t {
 			REGISTER,
-			MEMORY
+			MEMORY_POINTER
 		} result_type;
 		std::variant<
 			machine::register_t,
-			assembly_memory
+			assembly_memory_pointer
 		> value;
 
 		explicit assembly_result(machine::register_t reg)
 			: result_type(type::REGISTER), value(reg) {
 		}
-		explicit assembly_result(assembly_memory mem)
-			: result_type(type::MEMORY), value(mem) {
+		explicit assembly_result(assembly_memory_pointer mem)
+			: result_type(type::MEMORY_POINTER), value(mem) {
 		}
 		friend std::ostream& operator<<(std::ostream& os, const assembly_result& res) {
 			switch (res.result_type) {
 				case type::REGISTER:
 					os << std::get<machine::register_t>(res.value);
 					break;
-				case type::MEMORY:
-					os << std::get<assembly_memory>(res.value);
+				case type::MEMORY_POINTER:
+					os << std::get<assembly_memory_pointer>(res.value);
 					break;
 			}
 			return os;
@@ -159,19 +167,31 @@ namespace assembly {
 				static_assert(!HasResult, "No result provided for args_t with HasResult == true");
 			}
 
-			friend std::ostream& operator<<(std::ostream& os, const args_t& args) {
+			friend std::ostream& operator<<(std::ostream& os, const args_t& ags) {
 				if constexpr (HasResult) {
-					os << args.result;
+					os << ags.result;
 					if (N > 0) {
 						os << ", ";
 					}
 				}
 				for (size_t i = 0; i < N; ++i) {
-					os << args.operands[i];
+					os << ags.operands[i];
 					if (i < N - 1) {
 						os << ", ";
 					}
 				}
+				return os;
+			}
+		};
+		struct args_mr_t {
+			assembly_memory mem;
+			assembly_result result;
+
+			args_mr_t(assembly_memory m, assembly_result res)
+				: mem(m), result(res) {
+			}
+			friend std::ostream& operator<<(std::ostream& os, const args_mr_t& ags) {
+				os << ags.result << ", " << ags.mem;
 				return os;
 			}
 		};
@@ -182,7 +202,8 @@ namespace assembly {
 			args_t<1, true>, // Unary with result
 			args_t<1, false>, // Unary without result
 			args_t<0, true>, // Nullary with result
-			args_t<0, false> // Nullary without result
+			args_t<0, false>, // Nullary without result
+			args_mr_t // Memory to result (for LEA)
 		> args;
 
 		assembly_instruction(machine::operation operation, assembly_result result, assembly_operand op1)
@@ -197,6 +218,12 @@ namespace assembly {
 		assembly_instruction(machine::operation operation, assembly_result result)
 			: op(operation), args(args_t<0, true>{{}, result}) {
 		}
+		assembly_instruction(machine::operation operation, assembly_result result, assembly_memory mem)
+			: op(operation), args(args_mr_t{mem, result}) {
+			if (operation != machine::operation::LEA) {
+				throw std::invalid_argument("Only LEA instruction can use memory-to-result args");
+			}
+		}
 		explicit assembly_instruction(machine::operation operation)
 			: op(operation), args(args_t<0, false>{{}}) {
 		}
@@ -204,6 +231,12 @@ namespace assembly {
 		template<size_t N, bool HasResult>
 		assembly_instruction(machine::operation operation, const args_t<N, HasResult>& arguments)
 			: op(operation), args(arguments) {
+		}
+		assembly_instruction(machine::operation operation, const args_mr_t& arguments)
+			: op(operation), args(arguments) {
+			if (operation != machine::operation::LEA) {
+				throw std::invalid_argument("Only LEA instruction can use memory-to-result args");
+			}
 		}
 
 		friend std::ostream& operator<<(std::ostream& os, const assembly_instruction& inst) {

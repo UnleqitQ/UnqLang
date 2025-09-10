@@ -43,10 +43,10 @@ namespace assembly {
 		enum class type : uint8_t {
 			INSTRUCTION, // mov, add, sub, etc.
 			REGISTER, // eax, ebx, ecx, etc.
-			DATA_SIZE, // byte, word, dword
 			LITERAL, // number or label reference
 			LABEL, // label definition
 			MEMORY, // memory access
+			MEMORY_POINTER, // memory access with specified size
 			NEWLINE, // end of line
 			END_OF_FILE, // end of input
 			COMMA, // ,
@@ -55,10 +55,10 @@ namespace assembly {
 		std::variant<
 			machine::operation, // INSTRUCTION
 			machine::register_t, // REGISTER
-			machine::data_size_t, // DATA_SIZE
 			assembly_literal, // LITERAL
 			std::string, // LABEL DEFINITION
 			assembly_memory, // MEMORY
+			assembly_memory_pointer, // MEMORY_POINTER
 			std::monostate // NEWLINE, END_OF_FILE, UNKNOWN, COMMA
 		> value;
 		explicit assembly_parse_component(machine::operation op)
@@ -66,9 +66,6 @@ namespace assembly {
 		}
 		explicit assembly_parse_component(machine::register_t reg)
 			: component_type(type::REGISTER), value(reg) {
-		}
-		explicit assembly_parse_component(machine::data_size_t size)
-			: component_type(type::DATA_SIZE), value(size) {
 		}
 		explicit assembly_parse_component(assembly_literal lit)
 			: component_type(type::LITERAL), value(lit) {
@@ -78,6 +75,9 @@ namespace assembly {
 		}
 		explicit assembly_parse_component(assembly_memory mem)
 			: component_type(type::MEMORY), value(mem) {
+		}
+		explicit assembly_parse_component(assembly_memory_pointer mem)
+			: component_type(type::MEMORY_POINTER), value(mem) {
 		}
 		explicit assembly_parse_component(type t)
 			: component_type(t), value(std::monostate{}) {
