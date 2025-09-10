@@ -323,15 +323,23 @@ namespace assembly {
 	struct assembly_component {
 		enum class type : uint8_t {
 			LABEL,
-			INSTRUCTION
+			INSTRUCTION,
+			RAW_DATA
 		} component_type;
-		std::variant<std::string, assembly_instruction> value;
+		std::variant<
+			std::string,
+			assembly_instruction,
+			std::vector<uint8_t> // raw data
+		> value;
 
 		assembly_component(const std::string& label)
 			: component_type(type::LABEL), value(label) {
 		}
 		assembly_component(const assembly_instruction& inst)
 			: component_type(type::INSTRUCTION), value(inst) {
+		}
+		assembly_component(const std::vector<uint8_t>& data)
+			: component_type(type::RAW_DATA), value(data) {
 		}
 
 		friend std::ostream& operator<<(std::ostream& os, const assembly_component& comp) {
@@ -342,6 +350,17 @@ namespace assembly {
 				case type::INSTRUCTION:
 					os << std::get<assembly_instruction>(comp.value);
 					break;
+				case type::RAW_DATA: {
+					const auto& data = std::get<std::vector<uint8_t>>(comp.value);
+					os << "db ";
+					for (size_t i = 0; i < data.size(); ++i) {
+						os << std::format("0x{:02X}", data[i]);
+						if (i < data.size() - 1) {
+							os << ", ";
+						}
+					}
+					break;
+				}
 			}
 			return os;
 		}
@@ -360,6 +379,6 @@ namespace assembly {
 	void retrieve_labels(const assembly_program_t& assembly_program, std::unordered_map<std::string, uint32_t>& label_map,
 		bool byte_addressing,
 		uint32_t start_address = 0);
-	machine::program_t assemble(const assembly_program_t& assembly_program, bool byte_addressing,
+	machine::simple_program_t assemble(const assembly_program_t& assembly_program, bool byte_addressing,
 		uint32_t start_address = 0);
 } // assembly

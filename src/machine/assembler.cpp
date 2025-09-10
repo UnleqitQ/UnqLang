@@ -181,12 +181,12 @@ namespace machine::assembler {
 	void assemble_unsafe(const machine::instruction_t& instr, bytecode_t& out) {
 		assemble_instr<true>(instr, out);
 	}
-	void assemble(const machine::program_t& program, bytecode_t& out) {
+	void assemble(const machine::simple_program_t& program, bytecode_t& out) {
 		for (const auto& instr : program) {
 			assemble(instr, out);
 		}
 	}
-	void assemble_unsafe(const machine::program_t& program, bytecode_t& out) {
+	void assemble_unsafe(const machine::simple_program_t& program, bytecode_t& out) {
 		for (const auto& instr : program) {
 			assemble_unsafe(instr, out);
 		}
@@ -375,7 +375,7 @@ namespace machine::assembler {
 	void disassemble_unsafe(const bytecode_t& bytecode, machine::instruction_t& out, size_t& pc) {
 		disassemble_instr<true>(bytecode, out, pc);
 	}
-	void disassemble(const bytecode_t& bytecode, machine::program_t& out, size_t start, size_t end) {
+	void disassemble(const bytecode_t& bytecode, machine::simple_program_t& out, size_t start, size_t end) {
 		if (end > bytecode.size()) {
 			end = bytecode.size();
 		}
@@ -386,7 +386,7 @@ namespace machine::assembler {
 			out.push_back(instr);
 		}
 	}
-	void disassemble_unsafe(const bytecode_t& bytecode, machine::program_t& out, size_t start, size_t end) {
+	void disassemble_unsafe(const bytecode_t& bytecode, machine::simple_program_t& out, size_t start, size_t end) {
 		if (end > bytecode.size()) {
 			end = bytecode.size();
 		}

@@ -30,7 +30,7 @@ namespace machine {
 		computer(const ram& r, const register_file& reg)
 			: m_ram(r), m_registers(reg) {
 		}
-		void load_program(const program_t& program, uint32_t start_address = 0) {
+		void load_program(const simple_program_t& program, uint32_t start_address = 0) {
 			if (program.size() + start_address > ram::SIZE) {
 				throw std::runtime_error("Program size exceeds RAM size");
 			}

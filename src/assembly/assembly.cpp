@@ -233,10 +233,10 @@ namespace assembly {
 		}
 	}
 
-	machine::program_t assemble(const assembly_program_t& assembly_program,
+	machine::simple_program_t assemble(const assembly_program_t& assembly_program,
 		bool byte_addressing,
 		uint32_t start_address) {
-		machine::program_t program;
+		machine::simple_program_t program;
 		std::unordered_map<std::string, uint32_t> label_map;
 		retrieve_labels(assembly_program, label_map, byte_addressing, start_address);
 		program.reserve(assembly_program.size() - label_map.size());

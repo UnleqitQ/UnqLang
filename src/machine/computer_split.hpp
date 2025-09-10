@@ -15,7 +15,7 @@ namespace machine {
 		ram m_ram;
 		register_file m_registers;
 		uint32_t m_instruction_pointer = 0;
-		program_t m_program;
+		simple_program_t m_program;
 		execution_state_t m_state = execution_state_t::HALTED;
 		bool m_verbose = false;
 		std::string m_error_message;
@@ -29,7 +29,7 @@ namespace machine {
 		computer_split(const ram& r, const register_file& reg)
 			: m_ram(r), m_registers(reg) {
 		}
-		void load_program(const program_t& program) {
+		void load_program(const simple_program_t& program) {
 			m_program = program;
 			m_instruction_pointer = 0;
 			m_state = execution_state_t::RUNNING;
@@ -65,7 +65,7 @@ namespace machine {
 		void set_instruction_pointer(uint32_t ip) {
 			m_instruction_pointer = ip;
 		}
-		const program_t& get_program() const {
+		const simple_program_t& get_program() const {
 			return m_program;
 		}
 		execution_state_t get_state() const {

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <string>
+#include <variant>
 
 namespace machine {
 	enum class operation : uint8_t {
@@ -322,7 +323,12 @@ namespace machine {
 
 		uint32_t get_size() const;
 	};
-	typedef std::vector<instruction_t> program_t;
+	typedef std::variant<
+		instruction_t,
+		std::vector<uint8_t> // raw bytes
+	> program_component_t;
+	typedef std::vector<program_component_t> program_t;
+	typedef std::vector<instruction_t> simple_program_t;
 }
 
 #include "instruction.inl"
