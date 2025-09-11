@@ -62,6 +62,10 @@ namespace unqlang::compiler {
 		// child scopes (scope index is not needed here)
 		std::map<uint32_t, std::vector<child_scope_info>> children;
 
+		// whether all code paths in this scope return
+		bool all_paths_return = false;
+
+		// cache for calculations
 		mutable struct {
 			bool calculated_stack_size = false;
 			uint32_t stack_size = 0;

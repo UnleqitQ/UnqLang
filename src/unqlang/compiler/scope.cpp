@@ -74,6 +74,7 @@ namespace unqlang::compiler {
 	) const {
 		auto asm_scope = std::make_shared<assembly_scope>();
 		asm_scope->parent = parent_scope;
+		asm_scope->all_paths_return = all_paths_return;
 		calculate_stack_size(context);
 		asm_scope->stack_size = cache.stack_size;
 		asm_scope->cumulative_stack_size = cache.cumulative_stack_size;
@@ -133,6 +134,7 @@ namespace unqlang::compiler {
 					throw std::runtime_error("Unknown statement type in block encountered");
 				case ast_statement_node::type_t::ReturnStatement:
 					// return statements always end the current block, that also means every path returns
+					out_scope->all_paths_return = true;
 					return true;
 				case ast_statement_node::type_t::BlockStatement: {
 					const auto& block_stmt = std::get<ast_statement_block>(stmt->value);
@@ -143,8 +145,10 @@ namespace unqlang::compiler {
 					// no other scopes at this statement index
 					out_scope->children[statement_index] = {scope::child_scope_info(child_scope, key)};
 					statement_index++;
-					if (all_paths_return)
+					if (all_paths_return) {
+						out_scope->all_paths_return = true;
 						return true;
+					}
 					break;
 				}
 				case ast_statement_node::type_t::IfStatement: {
@@ -162,8 +166,10 @@ namespace unqlang::compiler {
 							all_paths_return = false;
 					}
 					statement_index++;
-					if (all_paths_return)
+					if (all_paths_return) {
+						out_scope->all_paths_return = true;
 						return true;
+					}
 					break;
 				}
 				case ast_statement_node::type_t::WhileStatement: {
@@ -198,6 +204,8 @@ namespace unqlang::compiler {
 				}
 			}
 		}
+		// if we reach here, we cannot guarantee that all paths return
+		out_scope->all_paths_return = false;
 		return false;
 	}
 } // unqlang::compiler
