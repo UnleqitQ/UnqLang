@@ -60,7 +60,8 @@ namespace unqlang {
 		ast_type_node(type_t t, std::monostate) : type(t) {
 			if (t == type_t::Pointer || t == type_t::Array || t == type_t::Function || t == type_t::Struct ||
 				t == type_t::Union || t == type_t::Custom) {
-				throw std::invalid_argument("Type must not be Pointer, Array, Function, Struct, Union or Custom for ast_type_node with monostate");
+				throw std::invalid_argument(
+					"Type must not be Pointer, Array, Function, Struct, Union or Custom for ast_type_node with monostate");
 			}
 			value = std::monostate{};
 		}
@@ -149,7 +150,7 @@ namespace unqlang {
 						if (*u1.members[i].type != *u2.members[i].type) {
 							return false;
 						}
-						}
+					}
 					return true;
 				}
 				case type_t::Custom: {
@@ -197,6 +198,27 @@ namespace unqlang {
 		}
 		bool operator!=(const ast_expression_literal& other) const {
 			return !(*this == other);
+		}
+
+		ast_type_node get_type() const {
+			switch (type) {
+				case type_t::Integer:
+					return ast_type_node(ast_type_node::type_t::Int, std::monostate{});
+				case type_t::String:
+					return ast_type_node(ast_type_node::type_t::Pointer, ast_type_pointer{
+						std::make_shared<ast_type_node>(ast_type_node::type_t::Char, std::monostate{})
+					});
+				case type_t::Char:
+					return ast_type_node(ast_type_node::type_t::Char, std::monostate{});
+				case type_t::Boolean:
+					return ast_type_node(ast_type_node::type_t::Bool, std::monostate{});
+				case type_t::Null:
+					return ast_type_node(ast_type_node::type_t::Pointer, ast_type_pointer{
+						std::make_shared<ast_type_node>(ast_type_node::type_t::Void, std::monostate{})
+					});
+				default:
+					throw std::runtime_error("Unknown literal type");
+			}
 		}
 
 		void print(int indent = 0) const;

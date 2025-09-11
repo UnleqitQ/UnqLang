@@ -127,10 +127,23 @@ namespace unqlang::analysis::types {
 					case primitive_type::VOID:
 						return 0;
 					case primitive_type::BOOL:
-					case primitive_type::CHAR:
 						return 1;
-					case primitive_type::INT:
+					case primitive_type::SIGNED_CHAR:
+					case primitive_type::UNSIGNED_CHAR:
+						return 1;
+					case primitive_type::SIGNED_SHORT:
+					case primitive_type::UNSIGNED_SHORT:
+						return 2;
+					case primitive_type::SIGNED_INT:
+					case primitive_type::UNSIGNED_INT:
 						return 4;
+					case primitive_type::SIGNED_LONG:
+					case primitive_type::UNSIGNED_LONG:
+						return 8;
+					case primitive_type::FLOAT:
+						return 4;
+					case primitive_type::DOUBLE:
+						return 8;
 				}
 				throw std::logic_error("Unknown primitive type");
 			}
@@ -180,10 +193,11 @@ namespace unqlang::analysis::types {
 	}
 	type_system::member_info type_system::get_struct_member_info(const type_node& type,
 		const std::string& member_name) const {
-		if (type.kind != type_node::kind_t::STRUCT) {
+		auto resolved_type = this->resolved_type(type);
+		if (resolved_type.kind != type_node::kind_t::STRUCT) {
 			throw std::logic_error("Type is not a struct");
 		}
-		const auto& st = std::get<struct_type>(type.value);
+		const auto& st = std::get<struct_type>(resolved_type.value);
 		return get_struct_member_info(st, member_name);
 	}
 	type_system::member_info type_system::get_struct_member_info(const struct_type& type,
@@ -200,14 +214,15 @@ namespace unqlang::analysis::types {
 	}
 	type_system::member_info type_system::get_union_member_info(const type_node& type,
 		const std::string& member_name) const {
-		if (type.kind != type_node::kind_t::UNION) {
+		auto resolved_type = this->resolved_type(type);
+		if (resolved_type.kind != type_node::kind_t::UNION) {
 			throw std::logic_error("Type is not a union");
 		}
-		const auto& un = std::get<union_type>(type.value);
+		const auto& un = std::get<union_type>(resolved_type.value);
 		return get_union_member_info(un, member_name);
 	}
 	type_system::member_info type_system::get_union_member_info(const union_type& type,
-		const std::string& member_name) const {
+		const std::string& member_name) {
 		for (size_t i = 0; i < type.members.size(); i++) {
 			const auto& member = type.members[i];
 			if (member.name == member_name) {
@@ -215,6 +230,280 @@ namespace unqlang::analysis::types {
 			}
 		}
 		throw std::logic_error("Member not found in union: " + member_name);
+	}
+	type_node type_system::get_result_type_binary(ast_expression_binary::type_t op, const type_node& left,
+		const type_node& right) const {
+		const auto left_resolved = resolved_type(left);
+		const auto right_resolved = resolved_type(right);
+		if ((left_resolved.kind == type_node::kind_t::PRIMITIVE &&
+				std::get<primitive_type>(left_resolved.value) == primitive_type::VOID) ||
+			(right_resolved.kind == type_node::kind_t::PRIMITIVE &&
+				std::get<primitive_type>(right_resolved.value) == primitive_type::VOID)) {
+			throw std::logic_error("Cannot use void type in binary expression");
+		}
+		switch (op) {
+			case ast_expression_binary::type_t::Add:
+			case ast_expression_binary::type_t::Subtract:
+			case ast_expression_binary::type_t::Multiply:
+			case ast_expression_binary::type_t::Divide:
+			case ast_expression_binary::type_t::Modulo:
+			case ast_expression_binary::type_t::BitwiseAnd:
+			case ast_expression_binary::type_t::BitwiseOr:
+			case ast_expression_binary::type_t::BitwiseXor: {
+				// check for pointer arithmetic
+				if (op == ast_expression_binary::type_t::Add || op == ast_expression_binary::type_t::Subtract) {
+					if (left_resolved.kind == type_node::kind_t::POINTER &&
+						right_resolved.kind == type_node::kind_t::PRIMITIVE) {
+						const auto right_primitive = std::get<primitive_type>(right_resolved.value);
+						if (right_primitive == primitive_type::VOID) {
+							throw std::logic_error("Cannot perform arithmetic on void type");
+						}
+						return left_resolved;
+					}
+					if (right_resolved.kind == type_node::kind_t::POINTER &&
+						left_resolved.kind == type_node::kind_t::PRIMITIVE) {
+						const auto left_primitive = std::get<primitive_type>(left_resolved.value);
+						if (left_primitive == primitive_type::VOID) {
+							throw std::logic_error("Cannot perform arithmetic on void type");
+						}
+						if (op == ast_expression_binary::type_t::Subtract) {
+							throw std::logic_error("Cannot subtract pointer from integer");
+						}
+						return right_resolved;
+					}
+					if (left_resolved.kind == type_node::kind_t::POINTER &&
+						right_resolved.kind == type_node::kind_t::POINTER) {
+						if (op == ast_expression_binary::type_t::Add) {
+							throw std::logic_error("Cannot add two pointers");
+						}
+						// Pointer subtraction results in an integer
+						return type_node(primitive_type::INT);
+					}
+				}
+				if (left_resolved.kind != type_node::kind_t::PRIMITIVE || right_resolved.kind != type_node::kind_t::PRIMITIVE) {
+					throw std::logic_error("Binary arithmetic operators require primitive types");
+				}
+				const auto left_primitive = std::get<primitive_type>(left_resolved.value);
+				const auto right_primitive = std::get<primitive_type>(right_resolved.value);
+				// Result type is the larger of the two types
+				auto up_type = upper_type(left_primitive, right_primitive);
+				if (op != ast_expression_binary::type_t::BitwiseAnd && op != ast_expression_binary::type_t::BitwiseOr &&
+					op != ast_expression_binary::type_t::BitwiseXor && up_type == primitive_type::BOOL) {
+					// Arithmetic operations on bools result in unsigned char
+					up_type = primitive_type::UCHAR;
+				}
+				return up_type;
+			}
+			case ast_expression_binary::type_t::Assignment: {
+				if (is_equivalent(left_resolved, primitive_type::BOOL)) {
+					return primitive_type::BOOL;
+				}
+				if (left_resolved.kind == type_node::kind_t::PRIMITIVE &&
+					right_resolved.kind == type_node::kind_t::PRIMITIVE) {
+					const auto left_primitive = std::get<primitive_type>(left_resolved.value);
+					const auto right_primitive = std::get<primitive_type>(right_resolved.value);
+					if (can_implicitly_convert(right_primitive, left_primitive)) {
+						return left_resolved;
+					}
+					throw std::logic_error(std::format("Cannot implicitly convert from {} to {}",
+						right_primitive, left_primitive));
+				}
+				if (is_equivalent(left_resolved, right_resolved)) {
+					return left_resolved;
+				}
+				throw std::logic_error("Incompatible types for assignment");
+			}
+			case ast_expression_binary::type_t::Equal:
+			case ast_expression_binary::type_t::NotEqual:
+				return primitive_type::BOOL;
+			case ast_expression_binary::type_t::Less:
+			case ast_expression_binary::type_t::LessEqual:
+			case ast_expression_binary::type_t::Greater:
+			case ast_expression_binary::type_t::GreaterEqual: {
+				if (left_resolved.kind != type_node::kind_t::PRIMITIVE || right_resolved.kind != type_node::kind_t::PRIMITIVE) {
+					throw std::logic_error("Relational operators require primitive types");
+				}
+				const auto left_primitive = std::get<primitive_type>(left_resolved.value);
+				const auto right_primitive = std::get<primitive_type>(right_resolved.value);
+				if (!is_numeric_type(left_primitive) || !is_numeric_type(right_primitive)) {
+					throw std::logic_error("Relational operators require numeric types");
+				}
+				return primitive_type::BOOL;
+			}
+			case ast_expression_binary::type_t::LogicalAnd:
+			case ast_expression_binary::type_t::LogicalOr: {
+				// Logical operators are always possible on any type
+				return primitive_type::BOOL;
+			}
+			case ast_expression_binary::type_t::ShiftLeft:
+			case ast_expression_binary::type_t::ShiftRight: {
+				if (left_resolved.kind != type_node::kind_t::PRIMITIVE || right_resolved.kind != type_node::kind_t::PRIMITIVE) {
+					throw std::logic_error("Bitwise shift operators require primitive types");
+				}
+				const auto left_primitive = std::get<primitive_type>(left_resolved.value);
+				const auto right_primitive = std::get<primitive_type>(right_resolved.value);
+				if (!is_integral_type(left_primitive) || !is_integral_type(right_primitive)) {
+					throw std::logic_error("Bitwise shift operators require integral types");
+				}
+				return left_resolved;
+			}
+			case ast_expression_binary::type_t::Comma: {
+				return right_resolved;
+			}
+			case ast_expression_binary::type_t::ArraySubscript: {
+				// left type must be a pointer or array
+				// right type must be integral (also bool)
+				if (right_resolved.kind != type_node::kind_t::PRIMITIVE ||
+					!is_pseudo_integral_type(std::get<primitive_type>(right_resolved.value))) {
+					throw std::logic_error("Array subscript requires integral type on right side");
+				}
+				if (left_resolved.kind == type_node::kind_t::ARRAY) {
+					const auto& arr = std::get<array_type>(left_resolved.value);
+					return *arr.element_type;
+				}
+				if (left_resolved.kind == type_node::kind_t::POINTER) {
+					const auto& ptr = std::get<pointer_type>(left_resolved.value);
+					return *ptr.pointee_type;
+				}
+				throw std::logic_error("Array subscript requires array or pointer type on left side");
+			}
+		}
+		throw std::logic_error("Unknown binary operator");
+	}
+	type_node type_system::get_result_type_unary(ast_expression_unary::type_t op, const type_node& operand) const {
+		const auto operand_resolved = resolved_type(operand);
+		if (operand_resolved.kind == type_node::kind_t::PRIMITIVE &&
+			std::get<primitive_type>(operand_resolved.value) == primitive_type::VOID) {
+			throw std::logic_error("Cannot use void type in unary expression");
+		}
+		switch (op) {
+			case ast_expression_unary::type_t::Negate:
+			case ast_expression_unary::type_t::Positive: {
+				if (operand_resolved.kind != type_node::kind_t::PRIMITIVE) {
+					throw std::logic_error("Unary + and - require primitive types");
+				}
+				const auto operand_primitive = std::get<primitive_type>(operand_resolved.value);
+				if (!is_numeric_type(operand_primitive)) {
+					throw std::logic_error("Unary + and - require numeric types");
+				}
+				return operand_resolved;
+			}
+			case ast_expression_unary::type_t::LogicalNot: {
+				// Logical NOT is always possible on any type
+				return primitive_type::BOOL;
+			}
+			case ast_expression_unary::type_t::BitwiseNot: {
+				if (operand_resolved.kind != type_node::kind_t::PRIMITIVE) {
+					throw std::logic_error("Bitwise NOT requires primitive types");
+				}
+				const auto operand_primitive = std::get<primitive_type>(operand_resolved.value);
+				if (!is_integral_type(operand_primitive)) {
+					throw std::logic_error("Bitwise NOT requires integral types");
+				}
+				return operand_resolved;
+			}
+			case ast_expression_unary::type_t::AddressOf: {
+				// Address of operator can be applied to any type except void
+				return pointer_type(std::make_shared<type_node>(operand_resolved));
+			}
+			case ast_expression_unary::type_t::Dereference: {
+				if (operand_resolved.kind != type_node::kind_t::POINTER) {
+					throw std::logic_error("Dereference operator requires pointer type");
+				}
+				const auto& ptr = std::get<pointer_type>(operand_resolved.value);
+				return *ptr.pointee_type;
+			}
+			case ast_expression_unary::type_t::PostfixDecrement:
+			case ast_expression_unary::type_t::PostfixIncrement:
+			case ast_expression_unary::type_t::PrefixDecrement:
+			case ast_expression_unary::type_t::PrefixIncrement: {
+				// allowed on primitive types and pointers
+				if (operand_resolved.kind == type_node::kind_t::PRIMITIVE) {
+					const auto operand_primitive = std::get<primitive_type>(operand_resolved.value);
+					if (!is_numeric_type(operand_primitive)) {
+						throw std::logic_error("Increment and decrement operators require numeric types");
+					}
+					return operand_resolved;
+				}
+				if (operand_resolved.kind == type_node::kind_t::POINTER) {
+					return operand_resolved;
+				}
+				throw std::logic_error("Increment and decrement operators require numeric or pointer types");
+			}
+			case ast_expression_unary::type_t::SizeOf: {
+				// sizeof operator can be applied to any type except void
+				const auto size = get_type_size(operand_resolved);
+				if (size > static_cast<size_t>(std::numeric_limits<unsigned int>::max())) {
+					throw std::logic_error("Size of type is too large to fit in an int");
+				}
+				return primitive_type::UINT;
+			}
+		}
+		throw std::logic_error("Unknown unary operator");
+	}
+	type_node type_system::get_result_type_literal(const ast_expression_literal& literal) {
+		switch (literal.type) {
+			case ast_expression_literal::type_t::Integer:
+				return primitive_type::INT;
+			case ast_expression_literal::type_t::Boolean:
+				return primitive_type::BOOL;
+			case ast_expression_literal::type_t::String:
+				return pointer_type(primitive_type::CHAR);
+			case ast_expression_literal::type_t::Null:
+				return pointer_type(primitive_type::VOID);
+			case ast_expression_literal::type_t::Char:
+				return primitive_type::CHAR;
+		}
+		throw std::logic_error("Unknown literal type");
+	}
+	type_node type_system::get_result_type_member_access(const type_node& object_type, const std::string& member_name,
+		bool pointer) const {
+		type_node obj_type = object_type;
+		const auto resolved_object_type = resolved_type(object_type);
+		if (pointer) {
+			if (resolved_object_type.kind != type_node::kind_t::POINTER) {
+				throw std::logic_error("Member access with '->' requires pointer type on left side");
+			}
+			const auto& ptr = std::get<pointer_type>(resolved_object_type.value);
+			const auto pointee_type = resolved_type(*ptr.pointee_type);
+			obj_type = pointee_type;
+		}
+		if (obj_type.kind == type_node::kind_t::STRUCT) {
+			const auto& st = std::get<struct_type>(obj_type.value);
+			const auto member_info = get_struct_member_info(st, member_name);
+			return *member_info.type;
+		}
+		if (obj_type.kind == type_node::kind_t::UNION) {
+			const auto& un = std::get<union_type>(obj_type.value);
+			const auto member_info = get_union_member_info(un, member_name);
+			return *member_info.type;
+		}
+		if (pointer)
+			throw std::logic_error("Member access with '->' requires pointer to struct or union type on left side");
+		else
+			throw std::logic_error("Member access requires struct or union type on left side");
+	}
+	type_node type_system::get_result_type_ternary(const type_node& then_type,
+		const type_node& else_type) const {
+		const auto then_resolved = resolved_type(then_type);
+		const auto else_resolved = resolved_type(else_type);
+		if (is_equivalent(then_resolved, else_resolved)) {
+			return then_resolved;
+		}
+		if (then_resolved.kind == type_node::kind_t::PRIMITIVE &&
+			else_resolved.kind == type_node::kind_t::PRIMITIVE) {
+			const auto then_primitive = std::get<primitive_type>(then_resolved.value);
+			const auto else_primitive = std::get<primitive_type>(else_resolved.value);
+			if (can_implicitly_convert(then_primitive, else_primitive)) {
+				return else_resolved;
+			}
+			if (can_implicitly_convert(else_primitive, then_primitive)) {
+				return then_resolved;
+			}
+			throw std::logic_error(std::format("Cannot implicitly convert between {} and {} in ternary expression",
+				then_primitive, else_primitive));
+		}
+		throw std::logic_error("Incompatible types in ternary expression");
 	}
 	bool type_system::is_equivalent(const type_node& a, const type_node& b, compare_options options) const {
 		if (a.kind == type_node::kind_t::CUSTOM && b.kind == type_node::kind_t::CUSTOM) {
