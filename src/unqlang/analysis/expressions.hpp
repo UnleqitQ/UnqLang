@@ -71,6 +71,27 @@ namespace unqlang::analysis::expressions {
 		bool operator!=(const literal_expression& other) const {
 			return !(*this == other);
 		}
+
+		static literal_expression make_nullptr() {
+			return literal_expression(kind_t::NULLPTR, std::monostate{});
+		}
+		static literal_expression make_char(char c) {
+			return literal_expression(kind_t::CHAR, c);
+		}
+		static literal_expression make_uint(unsigned int u) {
+			return literal_expression(kind_t::UINT, u);
+		}
+		static literal_expression make_int(int i) {
+			return literal_expression(kind_t::INT, i);
+		}
+		static literal_expression make_ulong(unsigned long ul) {
+			return literal_expression(kind_t::ULONG, ul);
+		}
+		static literal_expression make_long(long l) {
+			return literal_expression(kind_t::LONG, l);
+		}
+
+		static literal_expression from_ast(const ast_expression_literal& ast_lit);
 	};
 
 	struct identifier_expression {
@@ -90,6 +111,10 @@ namespace unqlang::analysis::expressions {
 		}
 		bool operator!=(const identifier_expression& other) const {
 			return !(*this == other);
+		}
+
+		static identifier_expression from_ast(const std::string& ast_id) {
+			return identifier_expression(ast_id);
 		}
 	};
 
@@ -146,10 +171,12 @@ namespace unqlang::analysis::expressions {
 		bool operator!=(const binary_expression& other) const {
 			return !(*this == other);
 		}
+
+		static binary_expression from_ast(const ast_expression_binary& ast_bin);
 	};
 
-	ast_expression_binary::type_t to_ast(binary_expression::operator_t op);
-	binary_expression::operator_t from_ast(ast_expression_binary::type_t op);
+	ast_expression_binary::type_t op_to_ast(binary_expression::operator_t op);
+	binary_expression::operator_t op_from_ast(ast_expression_binary::type_t op);
 
 	struct unary_expression {
 		enum class operator_t {
@@ -190,10 +217,12 @@ namespace unqlang::analysis::expressions {
 		bool operator!=(const unary_expression& other) const {
 			return !(*this == other);
 		}
+
+		static unary_expression from_ast(const ast_expression_unary& ast_un);
 	};
 
-	ast_expression_unary::type_t to_ast(unary_expression::operator_t op);
-	unary_expression::operator_t from_ast(ast_expression_unary::type_t op);
+	ast_expression_unary::type_t op_to_ast(unary_expression::operator_t op);
+	unary_expression::operator_t op_from_ast(ast_expression_unary::type_t op);
 
 	struct call_expression {
 		std::shared_ptr<expression_node> callee;
@@ -214,6 +243,8 @@ namespace unqlang::analysis::expressions {
 		bool operator!=(const call_expression& other) const {
 			return !(*this == other);
 		}
+
+		static call_expression from_ast(const ast_expression_call& ast_call);
 	};
 
 	struct member_expression {
@@ -236,6 +267,8 @@ namespace unqlang::analysis::expressions {
 		bool operator!=(const member_expression& other) const {
 			return !(*this == other);
 		}
+
+		static member_expression from_ast(const ast_member_access& ast_mem);
 	};
 
 	struct ternary_expression {
@@ -260,6 +293,8 @@ namespace unqlang::analysis::expressions {
 		bool operator!=(const ternary_expression& other) const {
 			return !(*this == other);
 		}
+
+		static ternary_expression from_ast(const ast_expression_ternary& ast_ter);
 	};
 
 	struct expression_node {
@@ -288,6 +323,20 @@ namespace unqlang::analysis::expressions {
 		expression_node() : kind(kind_t::UNKNOWN), value(std::monostate{}) {
 		}
 		expression_node(kind_t k, auto&& v) : kind(k), value(std::forward<decltype(v)>(v)) {
+		}
+		expression_node(literal_expression lit) : kind(kind_t::LITERAL), value(std::move(lit)) {
+		}
+		expression_node(identifier_expression id) : kind(kind_t::IDENTIFIER), value(std::move(id)) {
+		}
+		expression_node(binary_expression bin) : kind(kind_t::BINARY), value(std::move(bin)) {
+		}
+		expression_node(unary_expression un) : kind(kind_t::UNARY), value(std::move(un)) {
+		}
+		expression_node(call_expression call) : kind(kind_t::CALL), value(std::move(call)) {
+		}
+		expression_node(member_expression mem) : kind(kind_t::MEMBER), value(std::move(mem)) {
+		}
+		expression_node(ternary_expression ter) : kind(kind_t::TERNARY), value(std::move(ter)) {
 		}
 
 		types::type_node get_type(
@@ -325,5 +374,8 @@ namespace unqlang::analysis::expressions {
 		bool operator!=(const expression_node& other) const {
 			return !(*this == other);
 		}
+
+		static expression_node from_ast(const ast_expression_node& ast_expr);
 	};
+
 } // unqlang::analysis::expressions

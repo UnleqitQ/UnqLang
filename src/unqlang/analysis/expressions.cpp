@@ -10,7 +10,7 @@ namespace unqlang::analysis::expressions {
 			throw std::runtime_error("Binary expression missing operand");
 		}
 		return type_sys.get_result_type_binary(
-			to_ast(op),
+			op_to_ast(op),
 			left->get_type(storage, func_storage, type_sys),
 			right->get_type(storage, func_storage, type_sys)
 		);
@@ -33,7 +33,7 @@ namespace unqlang::analysis::expressions {
 		}
 		return true;
 	}
-	ast_expression_binary::type_t to_ast(binary_expression::operator_t op) {
+	ast_expression_binary::type_t op_to_ast(binary_expression::operator_t op) {
 		switch (op) {
 			case binary_expression::operator_t::ADD:
 				return ast_expression_binary::type_t::Add;
@@ -78,7 +78,7 @@ namespace unqlang::analysis::expressions {
 		}
 		throw std::runtime_error("Unknown binary operator");
 	}
-	binary_expression::operator_t from_ast(ast_expression_binary::type_t op) {
+	binary_expression::operator_t op_from_ast(ast_expression_binary::type_t op) {
 		switch (op) {
 			case ast_expression_binary::type_t::Add:
 				return binary_expression::operator_t::ADD;
@@ -125,6 +125,13 @@ namespace unqlang::analysis::expressions {
 		}
 		throw std::runtime_error("Unknown AST binary operator");
 	}
+	binary_expression binary_expression::from_ast(const ast_expression_binary& ast_bin) {
+		return binary_expression(
+			op_from_ast(ast_bin.type),
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_bin.left)),
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_bin.right))
+		);
+	}
 
 	types::type_node unary_expression::get_type(
 		const variables::storage& storage,
@@ -135,7 +142,7 @@ namespace unqlang::analysis::expressions {
 			throw std::runtime_error("Unary expression missing operand");
 		}
 		return type_sys.get_result_type_unary(
-			to_ast(op),
+			op_to_ast(op),
 			operand->get_type(storage, func_storage, type_sys)
 		);
 	}
@@ -151,7 +158,13 @@ namespace unqlang::analysis::expressions {
 		}
 		return true;
 	}
-	ast_expression_unary::type_t to_ast(unary_expression::operator_t op) {
+	unary_expression unary_expression::from_ast(const ast_expression_unary& ast_un) {
+		return unary_expression(
+			op_from_ast(ast_un.type),
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_un.operand))
+		);
+	}
+	ast_expression_unary::type_t op_to_ast(unary_expression::operator_t op) {
 		switch (op) {
 			case unary_expression::operator_t::PLUS:
 				return ast_expression_unary::type_t::Positive;
@@ -178,7 +191,7 @@ namespace unqlang::analysis::expressions {
 		}
 		throw std::runtime_error("Unknown unary operator");
 	}
-	unary_expression::operator_t from_ast(ast_expression_unary::type_t op) {
+	unary_expression::operator_t op_from_ast(ast_expression_unary::type_t op) {
 		switch (op) {
 			case ast_expression_unary::type_t::Positive:
 				return unary_expression::operator_t::PLUS;
@@ -309,6 +322,16 @@ namespace unqlang::analysis::expressions {
 		}
 		return true;
 	}
+	call_expression call_expression::from_ast(const ast_expression_call& ast_call) {
+		std::vector<std::shared_ptr<expression_node>> args;
+		for (const auto& ast_arg : ast_call.arguments) {
+			args.push_back(std::make_shared<expression_node>(expression_node::from_ast(*ast_arg)));
+		}
+		return call_expression(
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_call.callee)),
+			std::move(args)
+		);
+	}
 
 	types::type_node member_expression::get_type(
 		const variables::storage& storage,
@@ -329,6 +352,13 @@ namespace unqlang::analysis::expressions {
 			return false;
 		}
 		return member == other.member && pointer == other.pointer;
+	}
+	member_expression member_expression::from_ast(const ast_member_access& ast_mem) {
+		return member_expression(
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_mem.object)),
+			ast_mem.property,
+			ast_mem.pointer
+		);
 	}
 
 	types::type_node ternary_expression::get_type(
@@ -364,5 +394,33 @@ namespace unqlang::analysis::expressions {
 			return false;
 		}
 		return true;
+	}
+	ternary_expression ternary_expression::from_ast(const ast_expression_ternary& ast_ter) {
+		return ternary_expression(
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_ter.condition)),
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_ter.then)),
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_ter.otherwise))
+		);
+	}
+	expression_node expression_node::from_ast(const ast_expression_node& ast_expr) {
+		switch (ast_expr.type) {
+			case ast_expression_node::type_t::Literal:
+				return literal_expression::from_ast(std::get<ast_expression_literal>(ast_expr.value));
+			case ast_expression_node::type_t::Identifier:
+				return identifier_expression(std::get<std::string>(ast_expr.value));
+			case ast_expression_node::type_t::Binary:
+				return binary_expression::from_ast(std::get<ast_expression_binary>(ast_expr.value));
+			case ast_expression_node::type_t::Unary:
+				return unary_expression::from_ast(std::get<ast_expression_unary>(ast_expr.value));
+			case ast_expression_node::type_t::FunctionCall:
+				return call_expression::from_ast(std::get<ast_expression_call>(ast_expr.value));
+			case ast_expression_node::type_t::MemberAccess:
+				return member_expression::from_ast(std::get<ast_member_access>(ast_expr.value));
+			case ast_expression_node::type_t::Ternary:
+				return ternary_expression::from_ast(std::get<ast_expression_ternary>(ast_expr.value));
+			case ast_expression_node::type_t::Unknown:
+				throw std::runtime_error("Cannot convert unknown AST expression to analysis expression");
+		}
+		throw std::runtime_error("Unknown AST expression kind");
 	}
 } // unqlang::analysis::expressions
