@@ -1190,10 +1190,21 @@ namespace unqlang {
 			(type_parser::ast_type_definition_parser +
 				util::identifier() +
 				(util::punctuation('(') >
-					(ast_function_parameter_parser % util::punctuation(',')) < util::punctuation(')')) +
-				ast_statement_block_parser)
+					(ast_function_parameter_parser % util::punctuation(',')) < util::punctuation(')')) + (
+					ast_statement_block_parser.map<std::optional<ast_statement_block>>(
+						[](const ast_statement_block& block) {
+							return std::optional(block);
+						},
+						"FunctionBodyOptional"
+					) || (util::punctuation(';').map<std::optional<ast_statement_block>>(
+						[](const auto&) {
+							return std::optional<ast_statement_block>();
+						},
+						"FunctionBodyEmpty"
+					))
+				))
 			.map<std::tuple<std::shared_ptr<ast_type_node>, std::string, std::vector<std::pair<std::string, std::shared_ptr<
-				ast_type_node>>>, ast_statement_block>>(
+				ast_type_node>>>, std::optional<ast_statement_block>>>(
 				[](const auto& p) {
 					return std::make_tuple(
 						p.first.first.first, std::get<std::string>(p.first.first.second.value), p.first.second, p.second
@@ -1207,7 +1218,8 @@ namespace unqlang {
 					func_decl.return_type = std::get<0>(p);
 					func_decl.name = std::get<1>(p);
 					func_decl.parameters = std::get<2>(p);
-					func_decl.body = std::get<3>(p);
+					auto body_opt = std::get<3>(p);
+					func_decl.body = body_opt.has_value() ? std::make_shared<ast_statement_block>(body_opt.value()) : nullptr;
 					return util::make_ast_statement_node(ast_statement_node::type_t::FunctionDeclaration, func_decl);
 				},
 				"FunctionDeclaration"
@@ -1631,7 +1643,7 @@ namespace unqlang {
 			param.second->print(indent + 2);
 		}
 		std::cout << indent_str << "Body:\n";
-		body.print(indent + 1);
+		body->print(indent + 1);
 	}
 	void ast_statement_if::print(int indent) const {
 		const std::string indent_str(indent, ' ');

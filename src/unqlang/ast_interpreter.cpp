@@ -234,7 +234,7 @@ namespace unqlang::interpreter {
 			}
 			case ast_statement_node::type_t::FunctionDeclaration: {
 				const auto& func_decl = std::get<ast_statement_function_declaration>(stmt.value);
-				collect_literals(func_decl.body, literals);
+				collect_literals(*func_decl.body, literals);
 				break;
 			}
 			case ast_statement_node::type_t::VariableDeclaration: {
@@ -385,7 +385,7 @@ namespace unqlang::interpreter {
 	void ast_interpreter::initialize_literals() {
 		std::vector<ast_expression_literal> literals;
 		for (const auto& val : m_functions | std::views::values) {
-			collect_literals(val.body, literals);
+			collect_literals(*val.body, literals);
 		}
 		for (const auto& literal : literals) {
 			if (literal.type == ast_expression_literal::type_t::String) {
@@ -492,7 +492,7 @@ namespace unqlang::interpreter {
 			func_scope->variables[param_name] = args[i];
 		}
 		value_t result;
-		bool has_returned = execute_block(func_decl.body, func_scope, result);
+		bool has_returned = execute_block(*func_decl.body, func_scope, result);
 		const auto& return_type = analysis::types::type_system::from_ast(*func_decl.return_type);
 		if (!has_returned) {
 			if (return_type.kind != analysis::types::type_node::kind_t::PRIMITIVE ||

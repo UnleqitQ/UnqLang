@@ -419,7 +419,7 @@ namespace unqlang {
 		std::string name;
 		std::vector<std::pair<std::string, std::shared_ptr<ast_type_node>>> parameters; // (name, type)
 		std::shared_ptr<ast_type_node> return_type; // For now must be specified
-		ast_statement_block body;
+		std::shared_ptr<ast_statement_block> body; // Can be null (for forward declarations)
 		void print(int indent = 0) const;
 	};
 	struct ast_statement_variable_declaration {

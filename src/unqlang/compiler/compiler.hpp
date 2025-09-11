@@ -6,6 +6,7 @@
 #include "function.hpp"
 #include "scope.hpp"
 #include "../../assembly/assembly.hpp"
+#include "../analysis/expressions.hpp"
 
 namespace unqlang::compiler {
 	struct compilation_function {
@@ -14,7 +15,8 @@ namespace unqlang::compiler {
 	};
 
 	void compile_expression(
-		const ast_expression_node& expr,
+		const analysis::expressions::expression_node& expr,
+		const scoped_compilation_context& context,
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		machine::register_t target_reg
@@ -22,6 +24,8 @@ namespace unqlang::compiler {
 
 	class Compiler {
 		std::shared_ptr<analysis::types::type_system> m_type_system;
+		std::shared_ptr<analysis::functions::storage> m_function_storage;
+		std::shared_ptr<analysis::variables::storage> m_variable_storage;
 
 	public:
 		void analyze_program(const ast_program& program);

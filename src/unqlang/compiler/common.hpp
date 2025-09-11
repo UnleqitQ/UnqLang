@@ -2,6 +2,9 @@
 #include <cstdint>
 
 #include "../analysis/types.hpp"
+#include "../analysis/functions.hpp"
+#include "../analysis/expressions.hpp"
+#include "../analysis/variables.hpp"
 
 namespace unqlang::compiler {
 	union regmask {
@@ -21,6 +24,55 @@ namespace unqlang::compiler {
 	struct compilation_context {
 		// type system for type information
 		std::shared_ptr<analysis::types::type_system> type_system;
+
+		// function storage (for global functions)
+		std::shared_ptr<analysis::functions::storage> function_storage;
+
+		// variable storage (for global variables)
+		std::shared_ptr<analysis::variables::storage> variable_storage;
+
+		compilation_context()
+			: type_system(std::make_shared<analysis::types::type_system>()),
+			  function_storage(std::make_shared<analysis::functions::storage>()),
+			  variable_storage(std::make_shared<analysis::variables::storage>()) {
+		}
+
+		compilation_context(const std::shared_ptr<analysis::types::type_system>& ts,
+			const std::shared_ptr<analysis::functions::storage>& fs,
+			const std::shared_ptr<analysis::variables::storage>& vs)
+			: type_system(ts), function_storage(fs), variable_storage(vs) {
+			if (!type_system) {
+				throw std::runtime_error("Type system cannot be null");
+			}
+			if (!function_storage) {
+				throw std::runtime_error("Function storage cannot be null");
+			}
+			if (!variable_storage) {
+				throw std::runtime_error("Variable storage cannot be null");
+			}
+		}
+	};
+
+	struct scoped_compilation_context {
+		// global context
+		std::shared_ptr<compilation_context> global_context;
+
+		// parent context
+		std::shared_ptr<scoped_compilation_context> parent_context;
+
+		// variable storage for this scope
+		std::shared_ptr<analysis::variables::storage> variable_storage;
+
+		scoped_compilation_context(
+			const std::shared_ptr<compilation_context>& global_ctx,
+			const std::shared_ptr<scoped_compilation_context>& parent_ctx = nullptr)
+			: global_context(global_ctx),
+			  parent_context(parent_ctx),
+			  variable_storage(std::make_shared<analysis::variables::storage>()) {
+			if (!global_context) {
+				throw std::runtime_error("Global context cannot be null");
+			}
+		}
 	};
 
 	struct multi_if_statement {
