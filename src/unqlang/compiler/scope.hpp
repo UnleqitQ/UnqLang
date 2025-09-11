@@ -171,7 +171,8 @@ struct std::formatter<unqlang::compiler::assembly_scope> : std::formatter<std::s
 	auto format(const unqlang::compiler::assembly_scope& scp, std::format_context& ctx) const {
 		return std::formatter<std::string>::format(
 			std::format(
-				"assembly_scope(stack_size={}, cumulative_stack_size={}, base_offset={}, variables=[{}], children={})",
+				"assembly_scope(stack_size={}, cumulative_stack_size={}, base_offset={}, variables=[{}], children={},\n"
+				"used_registers={}, saved_registers={}, changed_registers={}, all_paths_return={})",
 				scp.stack_size,
 				scp.cumulative_stack_size,
 				scp.base_offset,
@@ -184,7 +185,11 @@ struct std::formatter<unqlang::compiler::assembly_scope> : std::formatter<std::s
 					}
 					return vars;
 				}(),
-				scp.children.size()
+				scp.children.size(),
+				scp.used_registers,
+				scp.saved_registers,
+				scp.changed_registers,
+				scp.all_paths_return
 			),
 			ctx
 		);

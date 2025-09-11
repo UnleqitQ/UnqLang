@@ -76,3 +76,43 @@ namespace unqlang::compiler {
 		}
 	};
 } // unqlang::compiler
+
+template<>
+struct std::formatter<unqlang::compiler::regmask> : std::formatter<std::string> {
+	auto format(const unqlang::compiler::regmask& rm, std::format_context& ctx) const {
+		std::string regs;
+		if (rm.eax)
+			regs += "AX ";
+		else
+			regs += "-- ";
+		if (rm.ebx)
+			regs += "BX ";
+		else
+			regs += "-- ";
+		if (rm.ecx)
+			regs += "CX ";
+		else
+			regs += "-- ";
+		if (rm.edx)
+			regs += "DX ";
+		else
+			regs += "-- ";
+		if (rm.esi)
+			regs += "SI ";
+		else
+			regs += "-- ";
+		if (rm.edi)
+			regs += "DI ";
+		else
+			regs += "-- ";
+		if (rm.ebp)
+			regs += "BP ";
+		else
+			regs += "-- ";
+		if (rm.esp)
+			regs += "SP ";
+		else
+			regs += "-- ";
+		return std::formatter<std::string>::format(regs, ctx);
+	}
+};

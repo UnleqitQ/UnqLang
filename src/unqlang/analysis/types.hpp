@@ -70,6 +70,8 @@ namespace unqlang::analysis::types {
 			}
 			member(std::string n, std::shared_ptr<type_node> t) : name(std::move(n)), type(std::move(t)) {
 			}
+			member(std::string n, const type_node& t) : name(std::move(n)), type(std::make_shared<type_node>(std::move(t))) {
+			}
 			member(std::string n, primitive_type t) : name(std::move(n)), type(std::make_shared<type_node>(t)) {
 			}
 		};
@@ -83,6 +85,8 @@ namespace unqlang::analysis::types {
 			member() : name(""), type(std::make_shared<type_node>(primitive_type::VOID)) {
 			}
 			member(std::string n, std::shared_ptr<type_node> t) : name(std::move(n)), type(std::move(t)) {
+			}
+			member(std::string n, const type_node& t) : name(std::move(n)), type(std::make_shared<type_node>(std::move(t))) {
 			}
 			member(std::string n, primitive_type t) : name(std::move(n)), type(std::make_shared<type_node>(t)) {
 			}

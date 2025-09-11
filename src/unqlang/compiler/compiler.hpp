@@ -21,5 +21,20 @@ namespace unqlang::compiler {
 	);
 
 	class Compiler {
+		std::shared_ptr<analysis::types::type_system> m_type_system;
+
+	public:
+		void analyze_program(const ast_program& program);
+
+		std::shared_ptr<scope> build_function_scope(const ast_statement_function_declaration& func_decl);
+		std::shared_ptr<assembly_scope> build_function_assembly_scope(
+			const std::shared_ptr<scope>& func_scope);
+
+		analysis::types::type_system& get_type_system() {
+			return *m_type_system;
+		}
+		const analysis::types::type_system& get_type_system() const {
+			return *m_type_system;
+		}
 	};
 } // unqlang::compiler
