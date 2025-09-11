@@ -32,11 +32,16 @@ add_executable(MiscMachine
 
 	src/main.cpp
 )
+add_executable(MiscMachine_compiler
+
+	src/main_compiler.cpp
+)
 add_executable(MiscMachine_assembler
 
 	src/main_assembler.cpp
 )
 
 target_link_libraries(MiscMachine MiscMachineLib UnqLangCompilerLib UnqLangLib)
+target_link_libraries(MiscMachine_compiler MiscMachineLib UnqLangCompilerLib UnqLangLib)
 target_link_libraries(MiscMachine_assembler MiscMachineLib)
 
