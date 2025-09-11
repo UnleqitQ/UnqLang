@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+#include "../analysis/types.hpp"
+
 namespace unqlang::compiler {
 	union regmask {
 		struct {
@@ -15,5 +17,9 @@ namespace unqlang::compiler {
 			// eip is not included as there is no way to use it directly
 		};
 		uint16_t raw;
+	};
+	struct compilation_context {
+		// type system for type information
+		std::shared_ptr<analysis::types::type_system> type_system;
 	};
 } // unqlang::compiler
