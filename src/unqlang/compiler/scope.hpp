@@ -24,6 +24,7 @@ namespace unqlang::compiler {
 			return scope_index < other.scope_index;
 		}
 	};
+
 	struct scope {
 		// information about a child scope
 		struct child_scope_info {
@@ -34,6 +35,8 @@ namespace unqlang::compiler {
 			// offset from this scope's offset for this child scope's variables
 			mutable uint32_t base_offset = 0;
 
+			child_scope_info() : child(nullptr), key(0, 0) {
+			}
 			child_scope_info(std::shared_ptr<scope> child, child_scope_key key)
 				: child(child), key(key) {
 			}
@@ -44,6 +47,8 @@ namespace unqlang::compiler {
 			variable_info var_info;
 			// index of the statement where this variable was declared
 			uint32_t statement_index;
+			variable_scope_info() : statement_index(0) {
+			}
 			variable_scope_info(variable_info var_info, uint32_t stmt_idx)
 				: var_info(var_info), statement_index(stmt_idx) {
 			}
@@ -119,5 +124,69 @@ namespace unqlang::compiler {
 		regmask saved_registers;
 		// registers that are changed in this scope (but not saved/restored, e.g. caller-saved registers)
 		regmask changed_registers;
+
+		// whether all code paths in this scope return
+		bool all_paths_return = false;
 	};
+
+	/**
+	 * Build a scope from an AST statement block
+	 * @param block AST statement block
+	 * @param out_scope Output scope
+	 * @param parent_scope Parent scope, nullptr if global
+	 * @return True if the scope has a return statement in all code paths, false otherwise
+	 */
+	bool build_scope(
+		const ast_statement_block& block,
+		std::shared_ptr<scope>& out_scope,
+		const std::shared_ptr<scope>& parent_scope = nullptr
+	);
 } // unqlang::compiler
+
+template<>
+struct std::formatter<unqlang::compiler::scope> : std::formatter<std::string> {
+	auto format(const unqlang::compiler::scope& scp, std::format_context& ctx) const {
+		return std::formatter<std::string>::format(
+			std::format(
+				"scope(stack_size={}, cumulative_stack_size={}, variables=[{}], children={})",
+				scp.get_stack_size({}),
+				scp.get_cumulative_stack_size({}),
+				[&scp]() {
+					std::string vars;
+					for (const auto& [name, var_info] : scp.symbol_table) {
+						if (!vars.empty())
+							vars += ", ";
+						vars += std::format("{}", var_info.var_info);
+					}
+					return vars;
+				}(),
+				scp.children.size()
+			),
+			ctx
+		);
+	}
+};
+template<>
+struct std::formatter<unqlang::compiler::assembly_scope> : std::formatter<std::string> {
+	auto format(const unqlang::compiler::assembly_scope& scp, std::format_context& ctx) const {
+		return std::formatter<std::string>::format(
+			std::format(
+				"assembly_scope(stack_size={}, cumulative_stack_size={}, base_offset={}, variables=[{}], children={})",
+				scp.stack_size,
+				scp.cumulative_stack_size,
+				scp.base_offset,
+				[&scp]() {
+					std::string vars;
+					for (const auto& [name, var_info] : scp.symbol_table) {
+						if (!vars.empty())
+							vars += ", ";
+						vars += std::format("{}", var_info);
+					}
+					return vars;
+				}(),
+				scp.children.size()
+			),
+			ctx
+		);
+	}
+};

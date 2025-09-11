@@ -292,3 +292,88 @@ namespace unqlang::analysis::types {
 		static type_node from_ast(const unqlang::ast_type_node& ast_type);
 	};
 } // namespace compiler::analysis::types
+template<>
+struct std::formatter<unqlang::analysis::types::primitive_type> : std::formatter<std::string> {
+	auto format(const unqlang::analysis::types::primitive_type& pt, std::format_context& ctx) const {
+		std::string type_str;
+		switch (pt) {
+			case unqlang::analysis::types::primitive_type::VOID:
+				type_str = "void";
+				break;
+			case unqlang::analysis::types::primitive_type::BOOL:
+				type_str = "bool";
+				break;
+			case unqlang::analysis::types::primitive_type::CHAR:
+				type_str = "char";
+				break;
+			case unqlang::analysis::types::primitive_type::INT:
+				type_str = "int";
+				break;
+			default:
+				type_str = "unknown";
+				break;
+		}
+		return std::formatter<std::string>::format(type_str, ctx);
+	}
+};
+template<>
+struct std::formatter<unqlang::analysis::types::type_node> : std::formatter<std::string> {
+	auto format(const unqlang::analysis::types::type_node& type, std::format_context& ctx) const {
+		std::string type_str;
+		switch (type.kind) {
+			case unqlang::analysis::types::type_node::kind_t::PRIMITIVE:
+				type_str = std::format("{}", std::get<unqlang::analysis::types::primitive_type>(type.value));
+				break;
+			case unqlang::analysis::types::type_node::kind_t::ARRAY: {
+				const auto& at = std::get<unqlang::analysis::types::array_type>(type.value);
+				type_str = std::format("{}[{}]", *at.element_type, at.size);
+				break;
+			}
+			case unqlang::analysis::types::type_node::kind_t::POINTER: {
+				const auto& pt = std::get<unqlang::analysis::types::pointer_type>(type.value);
+				type_str = std::format("{}*", *pt.pointee_type);
+				break;
+			}
+			case unqlang::analysis::types::type_node::kind_t::FUNCTION: {
+				const auto& ft = std::get<unqlang::analysis::types::function_type>(type.value);
+				type_str = std::format("{}(", *ft.return_type);
+				for (size_t i = 0; i < ft.parameter_types.size(); i++) {
+					if (i > 0) {
+						type_str += ", ";
+					}
+					type_str += std::format("{}", *ft.parameter_types[i]);
+				}
+				type_str += ")";
+				break;
+			}
+			case unqlang::analysis::types::type_node::kind_t::STRUCT: {
+				const auto& st = std::get<unqlang::analysis::types::struct_type>(type.value);
+				type_str = "struct { ";
+				for (size_t i = 0; i < st.members.size(); i++) {
+					if (i > 0) {
+						type_str += "; ";
+					}
+					type_str += std::format("{} {}", *st.members[i].type, st.members[i].name);
+				}
+				type_str += " }";
+				break;
+			}
+			case unqlang::analysis::types::type_node::kind_t::UNION: {
+				const auto& ut = std::get<unqlang::analysis::types::union_type>(type.value);
+				type_str = "union { ";
+				for (size_t i = 0; i < ut.members.size(); i++) {
+					if (i > 0) {
+						type_str += "; ";
+					}
+					type_str += std::format("{} {}", *ut.members[i].type, ut.members[i].name);
+				}
+				type_str += " }";
+				break;
+			}
+			case unqlang::analysis::types::type_node::kind_t::CUSTOM:
+				type_str = std::format("{}", std::get<std::string>(type.value));
+				break;
+		}
+		return std::formatter<std::string>::format(type_str, ctx);
+	}
+};

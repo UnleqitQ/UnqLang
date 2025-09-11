@@ -107,4 +107,97 @@ namespace unqlang::compiler {
 		}
 		return asm_scope;
 	}
+
+	bool build_scope(
+		const ast_statement_block& block,
+		std::shared_ptr<scope>& out_scope,
+		const std::shared_ptr<scope>& parent_scope
+	) {
+		out_scope = std::make_shared<scope>();
+		out_scope->parent = parent_scope;
+		uint32_t statement_index = 0;
+		for (const auto& stmt : block.statements) {
+			switch (stmt->type) {
+				case ast_statement_node::type_t::ExpressionStatement:
+					statement_index++;
+					break;
+				case ast_statement_node::type_t::FunctionDeclaration:
+					throw std::runtime_error("Function declarations are not allowed inside blocks (currently)");
+				case ast_statement_node::type_t::StructDeclaration:
+					throw std::runtime_error("Struct declarations are not allowed inside blocks (currently)");
+				case ast_statement_node::type_t::UnionDeclaration:
+					throw std::runtime_error("Union declarations are not allowed inside blocks (currently)");
+				case ast_statement_node::type_t::TypeDeclaration:
+					throw std::runtime_error("Type declarations are not allowed inside blocks (currently)");
+				case ast_statement_node::type_t::Unknown:
+					throw std::runtime_error("Unknown statement type in block encountered");
+				case ast_statement_node::type_t::ReturnStatement:
+					// return statements always end the current block, that also means every path returns
+					return true;
+				case ast_statement_node::type_t::BlockStatement: {
+					const auto& block_stmt = std::get<ast_statement_block>(stmt->value);
+					std::shared_ptr<scope> child_scope;
+					bool all_paths_return = build_scope(block_stmt, child_scope, out_scope);
+					// add child scope
+					child_scope_key key(statement_index, 0);
+					// no other scopes at this statement index
+					out_scope->children[statement_index] = {scope::child_scope_info(child_scope, key)};
+					statement_index++;
+					if (all_paths_return)
+						return true;
+					break;
+				}
+				case ast_statement_node::type_t::IfStatement: {
+					const auto& if_stmt = std::get<ast_statement_if>(stmt->value);
+					const auto mif = multi_if_statement::build_from_ast(if_stmt);
+					bool all_paths_return = true;
+					for (size_t i = 0; i < mif.branches.size(); i++) {
+						const auto& branch = mif.branches[i];
+						std::shared_ptr<scope> child_scope;
+						bool branch_returns = build_scope(branch.block, child_scope, out_scope);
+						// add child scope
+						child_scope_key key(statement_index, static_cast<uint32_t>(i));
+						out_scope->children[statement_index].emplace_back(child_scope, key);
+						if (!branch_returns)
+							all_paths_return = false;
+					}
+					statement_index++;
+					if (all_paths_return)
+						return true;
+					break;
+				}
+				case ast_statement_node::type_t::WhileStatement: {
+					const auto& while_stmt = std::get<ast_statement_while>(stmt->value);
+					std::shared_ptr<scope> child_scope;
+					const auto& body_node = while_stmt.body;
+					if (body_node->type != ast_statement_node::type_t::BlockStatement) {
+						throw std::runtime_error("While statement body is not a block");
+					}
+					const auto& body_block = std::get<ast_statement_block>(body_node->value);
+					// we cannot assume that while loops always return, even if they have a return statement
+					// because the loop may not execute at all
+					(void) build_scope(body_block, child_scope, out_scope);
+					// add child scope
+					child_scope_key key(statement_index, 0);
+					out_scope->children[statement_index] = {scope::child_scope_info(child_scope, key)};
+					statement_index++;
+					break;
+				}
+				case ast_statement_node::type_t::VariableDeclaration: {
+					const auto& var_decl = std::get<ast_statement_variable_declaration>(stmt->value);
+					if (out_scope->symbol_table.contains(var_decl.name)) {
+						throw std::runtime_error("Variable '" + var_decl.name + "' already declared in this scope");
+					}
+					const auto& name = var_decl.name;
+					const auto& type = var_decl.var_type;
+					variable_info var_info(name, analysis::types::type_system::from_ast(*type));
+					out_scope->symbol_table.emplace(name, scope::variable_scope_info(var_info, statement_index));
+					out_scope->symbols_by_statement[statement_index].push_back(name);
+					statement_index++;
+					break;
+				}
+			}
+		}
+		return false;
+	}
 } // unqlang::compiler
