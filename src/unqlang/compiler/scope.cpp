@@ -221,4 +221,87 @@ namespace unqlang::compiler {
 		out_scope->all_paths_return = false;
 		return false;
 	}
+	bool build_scope(const analysis::statements::block_statement& block, std::shared_ptr<scope>& out_scope,
+		const std::shared_ptr<scope>& parent_scope) {
+		out_scope = std::make_shared<scope>();
+		out_scope->parent = parent_scope;
+		uint32_t statement_index = 0;
+		for (const auto& stmt : block.statements) {
+			switch (stmt->kind) {
+				case analysis::statements::statement_node::kind_t::BLOCK: {
+					const auto& block_stmt = std::get<analysis::statements::block_statement>(stmt->value);
+					std::shared_ptr<scope> child_scope;
+					bool all_paths_return = build_scope(block_stmt, child_scope, out_scope);
+					// add child scope
+					child_scope_key key(statement_index, 0);
+					// no other scopes at this statement index
+					out_scope->children[statement_index] = {scope::child_scope_info(child_scope, key)};
+					statement_index++;
+					if (all_paths_return) {
+						out_scope->all_paths_return = true;
+						return true;
+					}
+					break;
+				}
+				case analysis::statements::statement_node::kind_t::IF: {
+					const auto& if_stmt = std::get<analysis::statements::if_statement>(stmt->value);
+					bool all_paths_return = true;
+					for (size_t i = 0; i < if_stmt.clauses.size(); i++) {
+						const auto& branch = if_stmt.clauses[i];
+						std::shared_ptr<scope> child_scope;
+						bool branch_returns = build_scope(branch.body, child_scope, out_scope);
+						// add child scope
+						child_scope_key key(statement_index, static_cast<uint32_t>(i));
+						out_scope->children[statement_index].emplace_back(child_scope, key);
+						if (!branch_returns)
+							all_paths_return = false;
+					}
+					statement_index++;
+					if (all_paths_return) {
+						out_scope->all_paths_return = true;
+						return true;
+					}
+					break;
+				}
+				case analysis::statements::statement_node::kind_t::WHILE: {
+					const auto& while_stmt = std::get<analysis::statements::while_statement>(stmt->value);
+					std::shared_ptr<scope> child_scope;
+					// we cannot assume that while loops always return, even if they have a return statement
+					// because the loop may not execute at all
+					(void) build_scope(while_stmt.body, child_scope, out_scope);
+					// add child scope
+					child_scope_key key(statement_index, 0);
+					out_scope->children[statement_index] = {scope::child_scope_info(child_scope, key)};
+					statement_index++;
+					break;
+				}
+				case analysis::statements::statement_node::kind_t::RETURN: {
+					// return statements always end the current block, that also means every path returns
+					out_scope->all_paths_return = true;
+					return true;
+				}
+				case analysis::statements::statement_node::kind_t::EXPRESSION: {
+					statement_index++;
+					break;
+				}
+				case analysis::statements::statement_node::kind_t::DECLARATION: {
+					const auto& decl = std::get<analysis::statements::declaration_statement>(stmt->value);
+					if (decl.kind != analysis::statements::declaration_statement::kind_t::VARIABLE) {
+						throw std::runtime_error("Only variable declarations are allowed inside blocks (currently)");
+					}
+					const auto& var_decl = std::get<analysis::statements::declaration_variable_statement>(decl.declaration);
+					if (out_scope->symbol_table.contains(var_decl.name)) {
+						throw std::runtime_error("Variable '" + var_decl.name + "' already declared in this scope");
+					}
+					const auto& name = var_decl.name;
+					const auto& type = var_decl.type;
+					variable_info var_info(name, type);
+					out_scope->symbol_table.emplace(name, scope::variable_scope_info(var_info, statement_index));
+					out_scope->symbols_by_statement[statement_index].push_back(name);
+					statement_index++;
+					break;
+				}
+			}
+		}
+	}
 } // unqlang::compiler

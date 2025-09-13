@@ -4,6 +4,7 @@
 #include <map>
 
 #include "variable.hpp"
+#include "../analysis/statements.hpp"
 
 namespace unqlang::compiler {
 	struct scope;
@@ -144,6 +145,11 @@ namespace unqlang::compiler {
 	 */
 	bool build_scope(
 		const ast_statement_block& block,
+		std::shared_ptr<scope>& out_scope,
+		const std::shared_ptr<scope>& parent_scope = nullptr
+	);
+	bool build_scope(
+		const analysis::statements::block_statement& block,
 		std::shared_ptr<scope>& out_scope,
 		const std::shared_ptr<scope>& parent_scope = nullptr
 	);

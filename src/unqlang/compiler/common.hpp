@@ -10,7 +10,6 @@ namespace unqlang::compiler {
 }
 
 namespace unqlang::compiler {
-
 	union regmask {
 		struct {
 			uint8_t eax : 1;
@@ -144,7 +143,7 @@ namespace unqlang::compiler {
 		std::shared_ptr<compilation_context> global_context;
 
 		// parent context
-		std::shared_ptr<scoped_compilation_context> parent_context;
+		const scoped_compilation_context* parent_context;
 
 		// variable storage for this scope
 		std::shared_ptr<analysis::variables::storage> variable_storage;
@@ -154,12 +153,26 @@ namespace unqlang::compiler {
 
 		scoped_compilation_context(
 			const std::shared_ptr<compilation_context>& global_ctx,
-			const std::shared_ptr<scoped_compilation_context>& parent_ctx = nullptr)
+			const scoped_compilation_context* parent_ctx = nullptr)
 			: global_context(global_ctx),
 			  parent_context(parent_ctx),
 			  variable_storage(std::make_shared<analysis::variables::storage>()) {
 			if (!global_context) {
 				throw std::runtime_error("Global context cannot be null");
+			}
+		}
+		scoped_compilation_context(
+			const scoped_compilation_context* parent_ctx,
+			const std::shared_ptr<analysis::variables::storage>& var_storage)
+			: global_context(parent_ctx->global_context),
+			  parent_context(parent_ctx),
+			  variable_storage(var_storage),
+			  current_function_signature(parent_ctx->current_function_signature) {
+			if (!global_context) {
+				throw std::runtime_error("Global context cannot be null");
+			}
+			if (!variable_storage) {
+				throw std::runtime_error("Variable storage cannot be null");
 			}
 		}
 	};

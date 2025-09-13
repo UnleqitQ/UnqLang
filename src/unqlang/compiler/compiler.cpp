@@ -94,7 +94,8 @@ namespace unqlang::compiler {
 		const scoped_compilation_context& context,
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
-		regmask used_regs
+		regmask used_regs,
+		uint32_t statement_index
 	) {
 		auto resolved_dest_type = context.global_context->type_system->resolved_type(dest_type);
 		regmask dest_regs = get_containing_regs(dest);
@@ -113,7 +114,10 @@ namespace unqlang::compiler {
 				{machine::register_id::eax, machine::register_id::ecx, machine::register_id::edx, machine::register_id::ebx},
 				dest_regs
 			);
-			compile_primitive_expression(src, context, program, current_scope, target_reg, used_regs | dest_regs);
+			compile_primitive_expression(
+				src, context, program, current_scope,
+				target_reg, used_regs | dest_regs, statement_index
+			);
 			// move the value from the register to the destination
 			auto dtp = std::get<analysis::types::primitive_type>(resolved_dest_type.value);
 			auto stp = std::get<analysis::types::primitive_type>(resolved_src_type.value);
@@ -196,7 +200,10 @@ namespace unqlang::compiler {
 				{machine::register_id::eax, machine::register_id::ecx, machine::register_id::edx, machine::register_id::ebx},
 				dest_regs
 			);
-			compile_primitive_expression(src, context, program, current_scope, target_reg, used_regs | dest_regs);
+			compile_primitive_expression(
+				src, context, program, current_scope,
+				target_reg, used_regs | dest_regs, statement_index
+			);
 			program.push_back(assembly::assembly_instruction(
 				machine::operation::MOV,
 				assembly::assembly_result(assembly::assembly_memory_pointer(machine::data_size_t::DWORD, dest)),
@@ -208,7 +215,10 @@ namespace unqlang::compiler {
 			resolved_src_type.kind == analysis::types::type_node::kind_t::ARRAY) {
 			// array to pointer decay, just get the address of the array
 			assembly::assembly_program_t temp_program;
-			auto addr = compile_reference(src, context, temp_program, current_scope, used_regs | dest_regs);
+			auto addr = compile_reference(
+				src, context, temp_program, current_scope,
+				used_regs | dest_regs, statement_index
+			);
 			regmask addr_regs = get_containing_regs(addr);
 			if ((addr_regs & dest_regs).raw == 0) {
 				regmask overlap = used_regs & addr_regs;
@@ -319,7 +329,8 @@ namespace unqlang::compiler {
 		const scoped_compilation_context& context,
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
-		regmask used_regs
+		regmask used_regs,
+		uint32_t statement_index
 	) {
 		switch (expr.kind) {
 			case analysis::expressions::expression_node::kind_t::LITERAL:
@@ -378,7 +389,10 @@ namespace unqlang::compiler {
 				if (unary.op == analysis::expressions::unary_expression::operator_t::PRE_INC ||
 					unary.op == analysis::expressions::unary_expression::operator_t::PRE_DEC) {
 					// we need to get the reference of the inner expression first
-					auto inner_ref = compile_reference(*unary.operand, context, program, current_scope, used_regs);
+					auto inner_ref = compile_reference(
+						*unary.operand, context, program,
+						current_scope, used_regs, statement_index
+					);
 					// then we just do a normal increment/decrement on that memory
 					auto inner_type = unary.operand->get_type(
 						*context.variable_storage,
@@ -418,7 +432,10 @@ namespace unqlang::compiler {
 					{machine::register_id::eax, machine::register_id::ecx, machine::register_id::edx, machine::register_id::ebx}
 				);
 				used_regs.set(addr_reg, true);
-				compile_primitive_expression(*unary.operand, context, program, current_scope, addr_reg, used_regs);
+				compile_primitive_expression(
+					*unary.operand, context, program,
+					current_scope, addr_reg, used_regs, statement_index
+				);
 				// return memory at that address
 				return assembly::assembly_memory(addr_reg);
 			}
@@ -468,7 +485,10 @@ namespace unqlang::compiler {
 							// no need to check type again, already done above
 							int32_t index = std::get<int32_t>(lit.value);
 							// get reference to left side
-							auto left_ref = compile_reference(*binary.left, context, program, current_scope, used_regs);
+							auto left_ref = compile_reference(
+								*binary.left, context, program,
+								current_scope, used_regs, statement_index
+							);
 							// calculate address with offset
 							int32_t offset = index * static_cast<int32_t>(element_size);
 							switch (left_ref.memory_type) {
@@ -543,11 +563,17 @@ namespace unqlang::compiler {
 						);
 						used_regs.set(index_reg, true);
 						// compile right side expression into index_reg
-						compile_primitive_expression(*binary.right, context, program, current_scope, index_reg, used_regs);
+						compile_primitive_expression(
+							*binary.right, context, program,
+							current_scope, index_reg, used_regs, statement_index
+						);
 						// store program in temporary program to not mess up the register usage
 						// (since we might need to save/restore registers below)
 						assembly::assembly_program_t temp_program;
-						auto val_mem = compile_reference(*binary.left, context, temp_program, current_scope, used_regs);
+						auto val_mem = compile_reference(
+							*binary.left, context, temp_program,
+							current_scope, used_regs, statement_index
+						);
 						// if the value memory address contains the index register, we need to do some tricks
 						regmask val_mem_regs = get_containing_regs(val_mem);
 						// whether we need to save the address in a different register first
@@ -654,7 +680,10 @@ namespace unqlang::compiler {
 					}
 					case analysis::expressions::binary_expression::operator_t::ASSIGN: {
 						// left side must be a reference
-						auto left_ref = compile_reference(*binary.left, context, program, current_scope, used_regs);
+						auto left_ref = compile_reference(
+							*binary.left, context, program,
+							current_scope, used_regs, statement_index
+						);
 						// assign the right side to the left side
 						compile_assignment(
 							left_ref,
@@ -667,7 +696,8 @@ namespace unqlang::compiler {
 							context,
 							program,
 							current_scope,
-							used_regs
+							used_regs,
+							statement_index
 						);
 						// return the left side reference
 						return left_ref;
@@ -701,7 +731,10 @@ namespace unqlang::compiler {
 				}
 				// if it is a union, just return the base object reference
 				if (object_type.kind == analysis::types::type_node::kind_t::UNION) {
-					return compile_reference(*member_access.object, context, program, current_scope, used_regs);
+					return compile_reference(
+						*member_access.object, context, program,
+						current_scope, used_regs, statement_index
+					);
 				}
 				// get the struct type
 				auto struct_type = std::get<analysis::types::struct_type>(object_type.value);
@@ -709,7 +742,10 @@ namespace unqlang::compiler {
 				auto member_info =
 					context.global_context->type_system->get_struct_member_info(struct_type, member_access.member);
 				// get reference to base object
-				auto base_ref = compile_reference(*member_access.object, context, program, current_scope, used_regs);
+				auto base_ref = compile_reference(
+					*member_access.object, context, program,
+					current_scope, used_regs, statement_index
+				);
 				switch (base_ref.memory_type) {
 					case assembly::assembly_memory::type::DIRECT: {
 						// direct memory access, just add offset to address
@@ -784,7 +820,7 @@ namespace unqlang::compiler {
 	void compile_boolean_binary_expression(const analysis::expressions::binary_expression& binary,
 		const scoped_compilation_context& context, assembly::assembly_program_t& program, assembly_scope& current_scope,
 		machine::register_t target_reg, regmask used_regs, analysis::types::type_node left_type,
-		analysis::types::type_node right_type) {
+		analysis::types::type_node right_type, uint32_t statement_index) {
 		if (left_type.kind != analysis::types::type_node::kind_t::PRIMITIVE ||
 			right_type.kind != analysis::types::type_node::kind_t::PRIMITIVE) {
 			throw std::runtime_error("Boolean binary expressions only support primitive types");
@@ -820,9 +856,15 @@ namespace unqlang::compiler {
 			machine::register_t left_reg_t{left_reg, analysis::types::to_data_size(left_prim_type)};
 
 			// compile left and right expressions
-			compile_primitive_expression(*binary.left, context, program, current_scope, left_reg_t, used_regs);
+			compile_primitive_expression(
+				*binary.left, context, program, current_scope,
+				left_reg_t, used_regs, statement_index
+			);
 			used_regs.set(target_reg.id, true);
-			compile_primitive_expression(*binary.right, context, program, current_scope, right_reg_t, used_regs);
+			compile_primitive_expression(
+				*binary.right, context, program, current_scope,
+				right_reg_t, used_regs, statement_index
+			);
 
 			// get the bigger size
 			machine::data_size_t cmp_size = std::max(
@@ -927,7 +969,10 @@ namespace unqlang::compiler {
 		}
 		used_regs.set(tmp_reg, false);
 		machine::register_t bool_reg{target_reg.id, machine::register_access::low_byte};
-		compile_primitive_expression(*binary.left, context, program, current_scope, bool_reg, used_regs);
+		compile_primitive_expression(
+			*binary.left, context, program, current_scope,
+			bool_reg, used_regs, statement_index
+		);
 		// test target_reg
 		program.push_back(assembly::assembly_instruction(
 			machine::operation::TEST,
@@ -942,7 +987,10 @@ namespace unqlang::compiler {
 			: machine::operation::JNZ,
 			assembly::assembly_operand({tmp_reg, machine::register_access::dword})
 		));
-		compile_primitive_expression(*binary.right, context, temp_program, current_scope, bool_reg, used_regs);
+		compile_primitive_expression(
+			*binary.right, context, temp_program, current_scope,
+			bool_reg, used_regs, statement_index
+		);
 		uint32_t size = assembly::program_size(temp_program);
 		// lea (eip + size) -> tmp_reg
 		program.push_back(assembly::assembly_instruction(
@@ -972,7 +1020,8 @@ namespace unqlang::compiler {
 		assembly_scope& current_scope,
 		machine::register_t target_reg,
 		regmask used_regs,
-		const analysis::types::type_node& dest_type
+		const analysis::types::type_node& dest_type,
+		uint32_t statement_index
 	) {
 		switch (expr.kind) {
 			case analysis::expressions::expression_node::kind_t::LITERAL: {
@@ -1048,7 +1097,10 @@ namespace unqlang::compiler {
 					case analysis::expressions::unary_expression::operator_t::ADDRESS_OF: {
 						used_regs.set(target_reg.id, false);
 						assembly::assembly_program_t temp_program;
-						auto ref = compile_reference(*unary.operand, context, temp_program, current_scope, used_regs);
+						auto ref = compile_reference(
+							*unary.operand, context, temp_program,
+							current_scope, used_regs, statement_index
+						);
 						regmask ref_regs = get_containing_regs(ref);
 						regmask overlap = ref_regs & used_regs;
 						// save overlapping registers
@@ -1097,7 +1149,10 @@ namespace unqlang::compiler {
 						})) {
 							throw std::runtime_error("Pointer type does not match target pointer type");
 						}
-						compile_primitive_expression(*unary.operand, context, program, current_scope, target_reg, used_regs);
+						compile_primitive_expression(
+							*unary.operand, context, program, current_scope,
+							target_reg, used_regs, statement_index
+						);
 						// now target_reg contains the address of the pointer, so we need to load the value at that address
 						program.push_back(assembly::assembly_instruction(
 							machine::operation::MOV,
@@ -1126,6 +1181,7 @@ namespace unqlang::compiler {
 		assembly_scope& current_scope,
 		machine::register_t target_reg,
 		regmask used_regs,
+		uint32_t statement_index,
 		bool store_value
 	) {
 		auto dest_type = context.global_context->type_system->resolved_type(
@@ -1156,7 +1212,10 @@ namespace unqlang::compiler {
 				object_type = resolved_base_object_type;
 			assembly::assembly_program_t temp_program;
 			used_regs.set(target_reg.id, false);
-			auto ref = compile_reference(*member_access.object, context, temp_program, current_scope, used_regs);
+			auto ref = compile_reference(
+				*member_access.object, context, temp_program,
+				current_scope, used_regs, statement_index
+			);
 			regmask ref_regs = get_containing_regs(ref);
 			regmask overlap = ref_regs & used_regs;
 			// save overlapping registers
@@ -1394,8 +1453,10 @@ namespace unqlang::compiler {
 					call_type = call_type_t::Complex;
 					// complex expression, need to evaluate to get address
 					used_regs.set(target_reg.id, false);
-					compile_primitive_expression(*call.callee, context, program, current_scope,
-						target_reg, used_regs);
+					compile_primitive_expression(
+						*call.callee, context, program, current_scope,
+						target_reg, used_regs, statement_index
+					);
 					used_regs.set(target_reg.id, true);
 				}
 			}
@@ -1456,8 +1517,10 @@ namespace unqlang::compiler {
 				machine::data_size_t param_size = resolved_param_type.kind == analysis::types::type_node::kind_t::PRIMITIVE
 					? analysis::types::to_data_size(std::get<analysis::types::primitive_type>(resolved_param_type.value))
 					: machine::data_size_t::DWORD;
-				compile_primitive_expression(*arg, context, program, current_scope,
-					{param_reg, param_size}, used_regs);
+				compile_primitive_expression(
+					*arg, context, program, current_scope,
+					{param_reg, param_size}, used_regs, statement_index
+				);
 				// push param_reg onto stack
 				program.push_back(assembly::assembly_instruction(
 					machine::operation::PUSH,
@@ -1574,7 +1637,10 @@ namespace unqlang::compiler {
 		if (dest_type.kind == analysis::types::type_node::kind_t::POINTER) {
 			auto pointer_type = std::get<analysis::types::pointer_type>(dest_type.value);
 			auto pointee_type = context.global_context->type_system->resolved_type(*pointer_type.pointee_type);
-			compile_pointer_expression(expr, context, program, current_scope, target_reg, used_regs, pointee_type);
+			compile_pointer_expression(
+				expr, context, program, current_scope,
+				target_reg, used_regs, pointee_type, statement_index
+			);
 			return;
 		}
 		if (dest_type.kind != analysis::types::type_node::kind_t::PRIMITIVE) {
@@ -1705,7 +1771,10 @@ namespace unqlang::compiler {
 							throw std::runtime_error("The dereferenced type should be a primitive type");
 						}
 						auto pointee_prim_type = std::get<analysis::types::primitive_type>(pointee_type.value);
-						compile_primitive_expression(*unary.operand, context, program, current_scope, target_reg, used_regs);
+						compile_primitive_expression(
+							*unary.operand, context, program, current_scope,
+							target_reg, used_regs, statement_index
+						);
 						// now target_reg contains the address, load the value from that address
 						program.push_back(assembly::assembly_instruction(
 							machine::operation::MOV,
@@ -1718,7 +1787,10 @@ namespace unqlang::compiler {
 						return;
 					}
 					case analysis::expressions::unary_expression::operator_t::MINUS: {
-						compile_primitive_expression(*unary.operand, context, program, current_scope, target_reg, used_regs);
+						compile_primitive_expression(
+							*unary.operand, context, program, current_scope,
+							target_reg, used_regs, statement_index
+						);
 						// negate the value in target_reg
 						program.push_back(assembly::assembly_instruction(
 							machine::operation::NEG,
@@ -1727,7 +1799,10 @@ namespace unqlang::compiler {
 						return;
 					}
 					case analysis::expressions::unary_expression::operator_t::NOT: {
-						compile_primitive_expression(*unary.operand, context, program, current_scope, target_reg, used_regs);
+						compile_primitive_expression(
+							*unary.operand, context, program, current_scope,
+							target_reg, used_regs, statement_index
+						);
 						// perform bitwise NOT on the value in target_reg
 						program.push_back(assembly::assembly_instruction(
 							machine::operation::NOT,
@@ -1736,7 +1811,10 @@ namespace unqlang::compiler {
 						return;
 					}
 					case analysis::expressions::unary_expression::operator_t::LNOT: {
-						compile_primitive_expression(*unary.operand, context, program, current_scope, target_reg.id, used_regs);
+						compile_primitive_expression(
+							*unary.operand, context, program, current_scope,
+							target_reg.id, used_regs, statement_index
+						);
 						// compare the value in target_reg with 0 and set to 1 if equal, else 0
 						program.push_back(assembly::assembly_instruction(
 							machine::operation::CMP,
@@ -1750,7 +1828,10 @@ namespace unqlang::compiler {
 						return;
 					}
 					case analysis::expressions::unary_expression::operator_t::PLUS: {
-						compile_primitive_expression(*unary.operand, context, program, current_scope, target_reg, used_regs);
+						compile_primitive_expression(
+							*unary.operand, context, program, current_scope,
+							target_reg, used_regs, statement_index
+						);
 						return;
 					}
 					case analysis::expressions::unary_expression::operator_t::SIZEOF:
@@ -1759,7 +1840,10 @@ namespace unqlang::compiler {
 					case analysis::expressions::unary_expression::operator_t::PRE_INC: {
 						// getting the reference to the expression already modifies it for us
 						assembly::assembly_program_t temp_program;
-						auto ref = compile_reference(unary, context, temp_program, current_scope, used_regs);
+						auto ref = compile_reference(
+							unary, context, temp_program,
+							current_scope, used_regs, statement_index
+						);
 						regmask ref_regs = get_containing_regs(ref);
 						regmask overlap = ref_regs & used_regs;
 						std::vector<machine::register_t> saved_regs;
@@ -1799,7 +1883,10 @@ namespace unqlang::compiler {
 						used_regs.set(target_reg.id, true);
 						// get reference to the operand
 						assembly::assembly_program_t temp_program;
-						auto ref = compile_reference(*unary.operand, context, temp_program, current_scope, used_regs);
+						auto ref = compile_reference(
+							*unary.operand, context, temp_program,
+							current_scope, used_regs, statement_index
+						);
 						regmask ref_regs = get_containing_regs(ref);
 						bool value_stored = ref_regs.get(target_reg.id);
 						regmask overlap = ref_regs & used_regs;
@@ -1896,7 +1983,8 @@ namespace unqlang::compiler {
 					// this ignores the actual pointer types and just compares the addresses
 					// get the value of the left pointer into target_reg
 					compile_primitive_expression(
-						left, context, program, current_scope, target_reg.id, used_regs
+						left, context, program, current_scope,
+						target_reg.id, used_regs, statement_index
 					);
 					// get the value of the right pointer into a different register
 					// find a free register or use ebx (order to check: ebx, ecx, eax, edx)
@@ -1916,7 +2004,8 @@ namespace unqlang::compiler {
 						));
 					}
 					compile_primitive_expression(
-						right, context, program, current_scope, right_reg_id, used_regs
+						right, context, program, current_scope,
+						right_reg_id, used_regs, statement_index
 					);
 					// now perform the operation
 					if (binary.op == analysis::expressions::binary_expression::operator_t::SUB) {
@@ -1997,7 +2086,8 @@ namespace unqlang::compiler {
 						target_reg,
 						used_regs,
 						left_type,
-						right_type
+						right_type,
+						statement_index
 					);
 					return;
 				}
@@ -2034,7 +2124,10 @@ namespace unqlang::compiler {
 						throw std::logic_error("Unknown primitive type");
 					}();
 					// get the base address into target_reg
-					compile_primitive_expression(left, context, program, current_scope, target_reg, used_regs);
+					compile_primitive_expression(
+						left, context, program, current_scope,
+						target_reg, used_regs, statement_index
+					);
 					if (right.kind == analysis::expressions::expression_node::kind_t::LITERAL) {
 						// if the index is a literal, we can do this more efficiently
 						const auto& lit = std::get<analysis::expressions::literal_expression>(right.value);
@@ -2090,7 +2183,9 @@ namespace unqlang::compiler {
 						));
 					}
 					compile_primitive_expression(
-						right, context, program, current_scope, {index_reg_id, machine::register_access::dword}, used_regs
+						right, context, program, current_scope,
+						{index_reg_id, machine::register_access::dword}, used_regs,
+						statement_index
 					);
 					// move the value from target_reg to itself + index_reg * element_size
 					program.push_back(assembly::assembly_instruction(
@@ -2120,7 +2215,10 @@ namespace unqlang::compiler {
 				auto right_prim_type = std::get<analysis::types::primitive_type>(right_type.value);
 				machine::register_t target = {target_reg.id, analysis::types::to_data_size(prim_type)};
 				used_regs.set(target_reg.id, false);
-				compile_primitive_expression(left, context, program, current_scope, target, used_regs);
+				compile_primitive_expression(
+					left, context, program, current_scope,
+					target, used_regs, statement_index
+				);
 				// get the value of the right side into a different register
 				// find a free register or use ebx (order to check: ebx, ecx, eax, edx)
 				machine::register_id right_reg_id = find_free_register(
@@ -2144,7 +2242,7 @@ namespace unqlang::compiler {
 					right, context, right_program, current_scope, {
 						right_reg_id, analysis::types::to_data_size(right_prim_type)
 					},
-					used_regs
+					used_regs, statement_index
 				);
 				// expand/shrink target and right_reg to the required size
 				machine::register_t left_calc_reg = {target_reg.id, analysis::types::to_data_size(prim_type)};
@@ -2291,7 +2389,10 @@ namespace unqlang::compiler {
 					case analysis::expressions::binary_expression::operator_t::ASSIGN: {
 						used_regs.set(target_reg.id, false);
 						assembly::assembly_program_t temp_program;
-						auto ref = compile_reference(left, context, temp_program, current_scope, used_regs);
+						auto ref = compile_reference(
+							left, context, temp_program, current_scope,
+							used_regs, statement_index
+						);
 						regmask ref_regs = get_containing_regs(ref);
 						regmask overlap = ref_regs & used_regs;
 						std::vector<machine::register_t> saved_regs;
@@ -2315,7 +2416,8 @@ namespace unqlang::compiler {
 							context,
 							program,
 							current_scope,
-							used_regs
+							used_regs,
+							statement_index
 						);
 						// load the assigned value into target_reg
 						if (store_value)
@@ -2346,15 +2448,469 @@ namespace unqlang::compiler {
 				}
 				return;
 			}
-			case analysis::expressions::expression_node::kind_t::CALL:
-				throw std::runtime_error("Function calls not implemented yet");
-			case analysis::expressions::expression_node::kind_t::MEMBER:
-				throw std::runtime_error("Member access not implemented yet");
 			case analysis::expressions::expression_node::kind_t::TERNARY:
 				throw std::runtime_error("Ternary operator not implemented yet");
 			default:
 				throw std::runtime_error("Unknown expression type");
 		};
+	}
+
+	void compile_block_statement(
+		const analysis::statements::block_statement& block,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		std::string label_prefix
+	) {
+		for (uint32_t i = 0; i < block.statements.size(); ++i) {
+			compile_statement(
+				*block.statements[i], context, program, current_scope,
+				used_regs, i, label_prefix
+			);
+		}
+	}
+	void compile_declaration_statement(
+		const analysis::statements::declaration_statement& decl,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		uint32_t statement_index,
+		std::string label_prefix
+	) {
+		switch (decl.kind) {
+			case analysis::statements::declaration_statement::kind_t::VARIABLE: {
+				const auto& var_decl = std::get<analysis::statements::declaration_variable_statement>(decl.declaration);
+				program.emplace_back(assembly::assembly_instruction{
+					machine::operation::SUB,
+					assembly::assembly_result{machine::register_id::esp},
+					assembly::assembly_operand{
+						static_cast<int32_t>(context.global_context->type_system->get_type_size(var_decl.type))
+					}
+				});
+				context.variable_storage->declare_variable(
+					var_decl.name,
+					var_decl.type,
+					true
+				);
+				if (var_decl.initializer.has_value()) {
+					compile_assignment(
+						assembly::assembly_memory(
+							machine::register_id::ebp,
+							-static_cast<int32_t>(current_scope.get_variable(var_decl.name).offset)
+						),
+						var_decl.type,
+						*var_decl.initializer,
+						context,
+						program,
+						current_scope,
+						used_regs,
+						statement_index
+					);
+				}
+				break;
+			}
+			case analysis::statements::declaration_statement::kind_t::FUNCTION:
+				throw std::runtime_error("Function declaration not allowed here");
+			case analysis::statements::declaration_statement::kind_t::STRUCT:
+				throw std::runtime_error("Struct declaration not allowed here");
+			case analysis::statements::declaration_statement::kind_t::TYPEDEF:
+				throw std::runtime_error("Typedef declaration not allowed here");
+			case analysis::statements::declaration_statement::kind_t::UNION:
+				throw std::runtime_error("Union declaration not allowed here");
+		}
+	}
+	void compile_if_statement(
+		const analysis::statements::if_statement& if_stmt,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		uint32_t statement_index,
+		std::string label_prefix
+	) {
+		auto cond_reg = find_free_register(
+			used_regs,
+			{
+				machine::register_id::ebx, machine::register_id::eax,
+				machine::register_id::edx, machine::register_id::ecx,
+			}
+		);
+		bool cond_was_used = used_regs.get(cond_reg);
+		if (cond_was_used) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::PUSH,
+				assembly::assembly_operand{cond_reg}
+			));
+		}
+		used_regs.set(cond_reg, false);
+		std::string end_label = label_prefix + std::to_string(statement_index) + "_if_end";
+		for (size_t i = 0; i < if_stmt.clauses.size(); ++i) {
+			bool is_last_clause = (i == if_stmt.clauses.size() - 1);
+			std::string next_label = is_last_clause
+				? end_label
+				: label_prefix + std::to_string(statement_index) + "_if_clause_" + std::to_string(i + 1);
+			const auto& clause = if_stmt.clauses[i];
+			if (clause.condition.has_value()) {
+				if (!is_last_clause)
+					throw std::runtime_error("If clause is empty");
+				// compile the condition
+				compile_primitive_expression(
+					*clause.condition, context, program, current_scope,
+					{cond_reg, machine::register_access::dword}, used_regs,
+					statement_index, true
+				);
+				// test the condition
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::TEST,
+					assembly::assembly_operand{cond_reg},
+					assembly::assembly_operand{cond_reg}
+				));
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::JZ,
+					assembly::assembly_operand{next_label}
+				));
+			}
+			// compile the body
+			// first create a new scope
+			const child_scope_key child_scope_key{statement_index, static_cast<uint32_t>(i)};
+			auto& child_scope = current_scope.children.at(child_scope_key);
+			auto variable_storage = std::make_shared<analysis::variables::storage>(
+				analysis::variables::storage::storage_type_t::Block,
+				context.variable_storage
+			);
+			scoped_compilation_context child_context{
+				&context,
+				variable_storage,
+			};
+			compile_block_statement(
+				clause.body, child_context, program, *child_scope.child,
+				used_regs, label_prefix + "if" + std::to_string(statement_index) + "_c" + std::to_string(i) + "_"
+			);
+			// jump to the end
+			if (!is_last_clause) {
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::JMP,
+					assembly::assembly_operand{end_label}
+				));
+			}
+			// next clause label
+			if (!is_last_clause) {
+				program.emplace_back(next_label);
+			}
+		}
+		// end label
+		program.emplace_back(end_label);
+		// restore condition register if needed
+		if (cond_was_used) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::POP,
+				assembly::assembly_result{cond_reg}
+			));
+		}
+	}
+	void compile_while_statement(
+		const analysis::statements::while_statement& while_stmt,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		uint32_t statement_index,
+		std::string label_prefix
+	) {
+		if (while_stmt.is_do_while)
+			throw std::runtime_error("Do-while loops not implemented yet");
+		std::string start_label = label_prefix + std::to_string(statement_index) + "_while_start";
+		std::string end_label = label_prefix + std::to_string(statement_index) + "_while_end";
+		program.emplace_back(start_label);
+		// compile the condition
+		auto cond_reg = find_free_register(
+			used_regs,
+			{
+				machine::register_id::eax, machine::register_id::ebx, machine::register_id::ecx,
+				machine::register_id::edx
+			}
+		);
+		bool cond_was_used = used_regs.get(cond_reg);
+		if (cond_was_used) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::PUSH,
+				assembly::assembly_operand{cond_reg}
+			));
+		}
+		used_regs.set(cond_reg, false);
+		compile_primitive_expression(
+			while_stmt.condition, context, program, current_scope,
+			{cond_reg, machine::register_access::dword}, used_regs,
+			statement_index, true
+		);
+		// test the condition
+		program.push_back(assembly::assembly_instruction(
+			machine::operation::TEST,
+			assembly::assembly_operand{cond_reg},
+			assembly::assembly_operand{cond_reg}
+		));
+		program.push_back(assembly::assembly_instruction(
+			machine::operation::JZ,
+			assembly::assembly_operand{end_label}
+		));
+		// compile the body
+		// first create a new scope
+		const child_scope_key child_scope_key{statement_index, 0};
+		auto& child_scope = current_scope.children.at(child_scope_key);
+		auto variable_storage = std::make_shared<analysis::variables::storage>(
+			analysis::variables::storage::storage_type_t::Block,
+			context.variable_storage
+		);
+		scoped_compilation_context child_context{
+			&context,
+			variable_storage,
+		};
+		compile_block_statement(
+			while_stmt.body, child_context, program, *child_scope.child,
+			used_regs, label_prefix + "w" + std::to_string(statement_index) + "_"
+		);
+		// jump back to the start
+		program.push_back(assembly::assembly_instruction(
+			machine::operation::JMP,
+			assembly::assembly_operand{start_label}
+		));
+		// end label
+		program.emplace_back(end_label);
+		// restore condition register if needed
+		if (cond_was_used) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::POP,
+				assembly::assembly_result{cond_reg}
+			));
+		}
+	}
+	void compile_return_statement(
+		const analysis::statements::return_statement& return_stmt,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		uint32_t statement_index,
+		std::string label_prefix
+	) {
+		if (return_stmt.value.has_value()) {
+			// we need to return a value
+			// the return value will be stored at [ebp + 8] (overwriting the argument space)
+
+			if (context.current_function_signature->return_type.kind == analysis::types::type_node::kind_t::PRIMITIVE &&
+				std::get<analysis::types::primitive_type>(context.current_function_signature->return_type.value) ==
+				analysis::types::primitive_type::VOID) {
+				throw std::runtime_error("Function has void return type but return statement has a value");
+			}
+
+			auto& ret_type = context.current_function_signature->return_type;
+			const auto& resolved_ret_type = context.global_context->type_system->resolved_type(ret_type);
+			const auto& expr_val_type = return_stmt.value->get_type(
+				*context.variable_storage,
+				*context.global_context->function_storage,
+				*context.global_context->type_system
+			);
+			const auto& resolved_expr_val_type = context.global_context->type_system->resolved_type(expr_val_type);
+			if (resolved_ret_type.kind != resolved_expr_val_type.kind) {
+				throw std::runtime_error("Return type does not match function return type");
+			}
+			if (resolved_ret_type.kind == analysis::types::type_node::kind_t::PRIMITIVE ||
+				resolved_ret_type.kind == analysis::types::type_node::kind_t::POINTER) {
+				machine::data_size_t ret_size, expr_size;
+				bool is_signed = false;
+				if (resolved_ret_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
+					auto ret_prim_type = std::get<analysis::types::primitive_type>(resolved_ret_type.value);
+					auto expr_prim_type = std::get<analysis::types::primitive_type>(resolved_expr_val_type.value);
+					if (!analysis::types::can_implicitly_convert(expr_prim_type, ret_prim_type)) {
+						throw std::runtime_error("Cannot implicitly convert return value to function return type");
+					}
+					ret_size = analysis::types::to_data_size(ret_prim_type);
+					expr_size = analysis::types::to_data_size(expr_prim_type);
+					is_signed = analysis::types::is_signed_integral_type(expr_prim_type) &&
+						analysis::types::is_signed_integral_type(ret_prim_type);
+				}
+				else {
+					// both are pointers
+					ret_size = machine::data_size_t::DWORD;
+					expr_size = machine::data_size_t::DWORD;
+				}
+				// get the return value into a free register
+				machine::register_id ret_reg_id = find_free_register(
+					used_regs,
+					{
+						machine::register_id::eax, machine::register_id::ebx, machine::register_id::ecx,
+						machine::register_id::edx
+					}
+				);
+				bool was_used = used_regs.get(ret_reg_id);
+				if (was_used) {
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::PUSH,
+						assembly::assembly_operand{ret_reg_id}
+					));
+				}
+				used_regs.set(ret_reg_id, false);
+				compile_primitive_expression(
+					*return_stmt.value, context, program, current_scope,
+					{ret_reg_id, expr_size}, used_regs,
+					statement_index, true
+				);
+				// move the return value into [ebp + 8]
+				if (ret_size != expr_size) {
+					if (is_signed) {
+						// sign-extend
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::MOVSX,
+							assembly::assembly_result({ret_reg_id, ret_size}),
+							assembly::assembly_operand({ret_reg_id, expr_size})
+						));
+					}
+					else {
+						// zero-extend or truncate
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::MOVZX,
+							assembly::assembly_result({ret_reg_id, ret_size}),
+							assembly::assembly_operand({ret_reg_id, expr_size})
+						));
+					}
+				}
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::MOV,
+					assembly::assembly_result({
+						ret_size,
+						assembly::assembly_memory(machine::register_id::ebp, 8)
+					}),
+					assembly::assembly_operand{{ret_reg_id, ret_size}}
+				));
+				if (was_used) {
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::POP,
+						assembly::assembly_result{ret_reg_id}
+					));
+				}
+			}
+			else {
+				throw std::runtime_error("Return type not implemented yet");
+			}
+		}
+		// cleanup the stack and return
+		program.push_back(assembly::assembly_instruction(
+			machine::operation::MOV,
+			assembly::assembly_result{machine::register_id::esp},
+			assembly::assembly_operand{machine::register_id::ebp}
+		));
+		program.push_back(assembly::assembly_instruction(
+			machine::operation::POP,
+			assembly::assembly_result{machine::register_id::ebp}
+		));
+		program.push_back(assembly::assembly_instruction(
+			machine::operation::RET
+		));
+	}
+	void compile_expression_statement(
+		const analysis::expressions::expression_node& expr_stmt,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		uint32_t statement_index,
+		std::string label_prefix
+	) {
+		// we don't care about the result, so we can use any register and not save it
+		machine::register_id target_reg_id = find_free_register(
+			used_regs,
+			{
+				machine::register_id::ebx, machine::register_id::ecx, machine::register_id::eax,
+				machine::register_id::edx
+			}
+		);
+		bool was_used = used_regs.get(target_reg_id);
+		if (was_used) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::PUSH,
+				assembly::assembly_operand{target_reg_id}
+			));
+		}
+		used_regs.set(target_reg_id, false);
+		compile_primitive_expression(
+			expr_stmt, context, program, current_scope,
+			{target_reg_id, machine::register_access::dword}, used_regs,
+			statement_index, false
+		);
+		if (was_used) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::POP,
+				assembly::assembly_result{target_reg_id}
+			));
+		}
+	}
+	void compile_statement(
+		const analysis::statements::statement_node& statement,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		uint32_t statement_index,
+		std::string label_prefix
+	) {
+		switch (statement.kind) {
+			case analysis::statements::statement_node::kind_t::BLOCK: {
+				// get the child scope
+				// the key will be the statement index and 0 (only statements with multiple children have multiple sub-scopes)
+				const child_scope_key key{statement_index, 0};
+				auto& child_scope = current_scope.children.at(key);
+				// also we need to create a new scoped context
+				// for this we need a new variable storage that has the current one as parent
+				auto variable_storage = std::make_shared<analysis::variables::storage>(
+					analysis::variables::storage::storage_type_t::Block,
+					context.variable_storage
+				);
+				scoped_compilation_context child_context{
+					&context,
+					variable_storage,
+				};
+				compile_block_statement(
+					std::get<analysis::statements::block_statement>(statement.value),
+					child_context, program, *child_scope.child, used_regs,
+					label_prefix + "b" + std::to_string(statement_index) + "_"
+				);
+				break;
+			}
+			case analysis::statements::statement_node::kind_t::DECLARATION:
+				compile_declaration_statement(
+					std::get<analysis::statements::declaration_statement>(statement.value),
+					context, program, current_scope, used_regs, statement_index, label_prefix
+				);
+				break;
+			case analysis::statements::statement_node::kind_t::IF:
+				compile_if_statement(
+					std::get<analysis::statements::if_statement>(statement.value),
+					context, program, current_scope, used_regs, statement_index, label_prefix
+				);
+				break;
+			case analysis::statements::statement_node::kind_t::WHILE:
+				compile_while_statement(
+					std::get<analysis::statements::while_statement>(statement.value),
+					context, program, current_scope, used_regs, statement_index, label_prefix
+				);
+				break;
+			case analysis::statements::statement_node::kind_t::RETURN:
+				compile_return_statement(
+					std::get<analysis::statements::return_statement>(statement.value),
+					context, program, current_scope, used_regs, statement_index, label_prefix
+				);
+				break;
+			case analysis::statements::statement_node::kind_t::EXPRESSION:
+				compile_expression_statement(
+					std::get<analysis::expressions::expression_node>(statement.value),
+					context, program, current_scope, used_regs, statement_index, label_prefix
+				);
+				break;
+			default:
+				throw std::runtime_error("Unknown statement type");
+		}
 	}
 
 	void Compiler::analyze_program(const ast_program& program) {
