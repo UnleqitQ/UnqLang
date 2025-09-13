@@ -320,6 +320,11 @@ namespace unqlang::analysis::types {
 			case ast_expression_binary::type_t::LessEqual:
 			case ast_expression_binary::type_t::Greater:
 			case ast_expression_binary::type_t::GreaterEqual: {
+				if (left_resolved.kind == type_node::kind_t::POINTER &&
+					right_resolved.kind == type_node::kind_t::POINTER) {
+					// Pointer comparison is always possible
+					return primitive_type::BOOL;
+				}
 				if (left_resolved.kind != type_node::kind_t::PRIMITIVE || right_resolved.kind != type_node::kind_t::PRIMITIVE) {
 					throw std::logic_error("Relational operators require primitive types");
 				}

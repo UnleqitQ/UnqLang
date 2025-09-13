@@ -17,14 +17,45 @@ namespace assembly {
 			LABEL
 		} literal_type;
 		std::variant<int32_t, std::string> value;
-		explicit assembly_literal(int32_t num)
+		assembly_literal(int32_t num)
 			: literal_type(type::NUMBER), value(num) {
 		}
-		explicit assembly_literal(const std::string& label)
+		assembly_literal(const std::string& label)
 			: literal_type(type::LABEL), value(label) {
 		}
 		std::string to_string(bool hex = false) const;
 		friend std::ostream& operator<<(std::ostream& os, const assembly_literal& lit) {
+			return os << lit.to_string();
+		}
+	};
+	struct extended_assembly_literal {
+		struct binary_operation {
+			std::shared_ptr<extended_assembly_literal> left;
+			std::shared_ptr<extended_assembly_literal> right;
+		};
+		enum class type_t : uint8_t {
+			VALUE,
+			ADD,
+			SUB,
+			MUL,
+			DIV
+		} type;
+		std::variant<
+			assembly_literal,
+			binary_operation
+		> value;
+		extended_assembly_literal(assembly_literal lit)
+			: type(type_t::VALUE), value(lit) {
+		}
+		extended_assembly_literal(type_t t, std::shared_ptr<extended_assembly_literal> l,
+			std::shared_ptr<extended_assembly_literal> r)
+			: type(t), value(binary_operation{l, r}) {
+			if (t == type_t::VALUE) {
+				throw std::invalid_argument("Binary operation cannot have type VALUE");
+			}
+		}
+		std::string to_string(bool hex = false) const;
+		friend std::ostream& operator<<(std::ostream& os, const extended_assembly_literal& lit) {
 			return os << lit.to_string();
 		}
 	};
@@ -38,28 +69,37 @@ namespace assembly {
 		};
 		struct displacement {
 			machine::register_t reg;
-			assembly_literal disp;
+			extended_assembly_literal disp;
 
 			static constexpr uint32_t SIZE = 1 + 4; // reg (1) + disp (4)
 		};
 		struct scaled_index {
 			machine::register_t base;
 			machine::register_t index;
-			int8_t scale; // typically 1, 2, 4, or 8, but others are allowed
+			int16_t scale; // typically 1, 2, 4, or 8, but others are allowed
 
 			static constexpr uint32_t SIZE = 1 + 1 + 1; // base (1) + index (1) + scale (1)
 		};
 		struct scaled_index_displacement {
 			machine::register_t base;
 			machine::register_t index;
-			int8_t scale;
-			assembly_literal disp;
+			int16_t scale;
+			extended_assembly_literal disp;
 
 			static constexpr uint32_t SIZE = 1 + 1 + 1 + 4; // base (1) + index (1) + scale (1) + disp (4)
 		};
 		type memory_type;
-		std::variant<assembly_literal, machine::register_t, displacement, scaled_index, scaled_index_displacement> value;
+		std::variant<
+			extended_assembly_literal,
+			machine::register_t,
+			displacement,
+			scaled_index,
+			scaled_index_displacement
+		> value;
 		explicit assembly_memory(assembly_literal lit)
+			: memory_type(type::DIRECT), value(lit) {
+		}
+		explicit assembly_memory(extended_assembly_literal lit)
 			: memory_type(type::DIRECT), value(lit) {
 		}
 		explicit assembly_memory(machine::register_t reg)
@@ -68,10 +108,16 @@ namespace assembly {
 		assembly_memory(machine::register_t reg, assembly_literal disp)
 			: memory_type(type::DISPLACEMENT), value(displacement{reg, disp}) {
 		}
-		assembly_memory(machine::register_t base, machine::register_t index, int8_t scale)
+		assembly_memory(machine::register_t reg, extended_assembly_literal disp)
+			: memory_type(type::DISPLACEMENT), value(displacement{reg, disp}) {
+		}
+		assembly_memory(machine::register_t base, machine::register_t index, int16_t scale)
 			: memory_type(type::SCALED_INDEX), value(scaled_index{base, index, scale}) {
 		}
-		assembly_memory(machine::register_t base, machine::register_t index, int8_t scale, assembly_literal disp)
+		assembly_memory(machine::register_t base, machine::register_t index, int16_t scale, assembly_literal disp)
+			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value(scaled_index_displacement{base, index, scale, disp}) {
+		}
+		assembly_memory(machine::register_t base, machine::register_t index, int16_t scale, extended_assembly_literal disp)
 			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value(scaled_index_displacement{base, index, scale, disp}) {
 		}
 		std::string to_string() const;
@@ -121,17 +167,20 @@ namespace assembly {
 		} operand_type;
 		std::variant<
 			machine::register_t,
-			assembly_literal,
+			extended_assembly_literal,
 			assembly_memory_pointer
 		> value;
 
-		explicit assembly_operand(machine::register_t reg)
+		assembly_operand(machine::register_t reg)
 			: operand_type(type::REGISTER), value(reg) {
 		}
-		explicit assembly_operand(assembly_literal lit)
+		assembly_operand(assembly_literal lit)
 			: operand_type(type::LITERAL), value(lit) {
 		}
-		explicit assembly_operand(assembly_memory_pointer mem)
+		assembly_operand(extended_assembly_literal lit)
+			: operand_type(type::LITERAL), value(lit) {
+		}
+		assembly_operand(assembly_memory_pointer mem)
 			: operand_type(type::MEMORY_POINTER), value(mem) {
 		}
 		friend std::ostream& operator<<(std::ostream& os, const assembly_operand& op) {
@@ -140,7 +189,7 @@ namespace assembly {
 					os << std::get<machine::register_t>(op.value);
 					break;
 				case type::LITERAL:
-					os << std::get<assembly_literal>(op.value);
+					os << std::get<extended_assembly_literal>(op.value);
 					break;
 				case type::MEMORY_POINTER:
 					os << std::get<assembly_memory_pointer>(op.value);
@@ -171,10 +220,10 @@ namespace assembly {
 			assembly_memory_pointer
 		> value;
 
-		explicit assembly_result(machine::register_t reg)
+		assembly_result(machine::register_t reg)
 			: result_type(type::REGISTER), value(reg) {
 		}
-		explicit assembly_result(assembly_memory_pointer mem)
+		assembly_result(assembly_memory_pointer mem)
 			: result_type(type::MEMORY_POINTER), value(mem) {
 		}
 		friend std::ostream& operator<<(std::ostream& os, const assembly_result& res) {
@@ -210,7 +259,7 @@ namespace assembly {
 				: operands(ops), result(res) {
 				static_assert(HasResult, "Result provided for args_t with HasResult == false");
 			}
-			explicit args_t(const std::array<assembly_operand, N>& ops)
+			args_t(const std::array<assembly_operand, N>& ops)
 				: operands(ops), result(std::monostate{}) {
 				static_assert(!HasResult, "No result provided for args_t with HasResult == true");
 			}
@@ -372,6 +421,7 @@ namespace assembly {
 			return 0; // Labels do not contribute to instruction size
 		}
 	};
+
 	typedef std::vector<assembly_component> assembly_program_t;
 
 	machine::instruction_t assemble_instruction(const assembly_instruction& inst,
@@ -383,4 +433,6 @@ namespace assembly {
 		uint32_t start_address = 0);
 	machine::program_t assemble(const assembly_program_t& assembly_program, bool byte_addressing,
 		uint32_t start_address = 0);
+
+	uint32_t program_size(const assembly_program_t& assembly_program);
 } // assembly

@@ -16,6 +16,8 @@ namespace machine {
 
 		// Data Movement
 		MOV,
+		MOVSX, // Move with Sign Extension (that is, extend a smaller value to a larger one, preserving the sign)
+		MOVZX, // Move with Zero Extension (that is, extend a smaller value to a larger one, filling with zeros)
 		PUSH,
 		POP,
 		LEA,
@@ -91,6 +93,25 @@ namespace machine {
 		CLC, // Clear Carry Flag
 		STC, // Set Carry Flag
 		HLT, // Halt
+
+		// Set Byte on Condition
+		SETZ, // Set if Zero
+		SETNZ, // Set if Not Zero
+		SETO, // Set if Overflow
+		SETNO, // Set if Not Overflow
+		SETC, // Set if Carry
+		SETNC, // Set if Not Carry
+		SETS, // Set if Sign
+		SETNS, // Set if Not Sign
+		SETG, // Set if Greater
+		SETGE, // Set if Greater or Equal
+		SETL, // Set if Less
+		SETLE, // Set if Less or Equal
+		SETA, // Set if Above (unsigned >)
+		SETAE, // Set if Above or Equal (unsigned >=)
+		SETB, // Set if Below (unsigned <)
+		SETBE, // Set if Below or Equal (unsigned <=)
+
 		// Input/Output
 		IN,
 		OUT
@@ -195,6 +216,21 @@ namespace machine {
 			memory_pointer_operand mem;
 		} value;
 
+		operand_arg() : type(type_t::IMMEDIATE), value{.imm = 0} {
+		}
+		operand_arg(register_t r)
+			: type(type_t::REGISTER), value{.reg = r} {
+		}
+		operand_arg(int32_t i)
+			: type(type_t::IMMEDIATE), value{.imm = i} {
+		}
+		operand_arg(uint32_t u)
+			: type(type_t::IMMEDIATE), value{.imm = static_cast<int32_t>(u)} {
+		}
+		operand_arg(const memory_pointer_operand& m)
+			: type(type_t::MEMORY), value{.mem = m} {
+		}
+
 		friend std::ostream& operator<<(std::ostream& os, const operand_arg& arg);
 
 		uint32_t get_size() const {
@@ -225,10 +261,10 @@ namespace machine {
 		result_arg() : type(type_t::UNDEFINED), value{} {
 		}
 
-		explicit result_arg(register_t r)
+		result_arg(register_t r)
 			: type(type_t::REGISTER), value{.reg = r} {
 		}
-		explicit result_arg(const memory_pointer_operand& m)
+		result_arg(const memory_pointer_operand& m)
 			: type(type_t::MEMORY), value{.mem = m} {
 		}
 		explicit operator bool() const {

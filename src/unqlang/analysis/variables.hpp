@@ -59,5 +59,14 @@ namespace unqlang::analysis::variables {
 			}
 			return false;
 		}
+		storage* get_declaring_scope(const std::string& name) {
+			if (variables.contains(name)) {
+				return this;
+			}
+			if (parent != nullptr) {
+				return parent->get_declaring_scope(name);
+			}
+			throw std::runtime_error("Variable not declared: " + name);
+		}
 	};
 } // unqlang::analysis::variables

@@ -38,10 +38,14 @@ namespace unqlang::compiler {
 				for (const auto& var_name : sym_it->second) {
 					const auto& var_info = symbol_table.at(var_name);
 					uint32_t var_size = var_info.var_info.get_size(context);
-					// store variable offset (positive value because it's always negative relative to base pointer)
-					var_info.var_info.cache.offset = base_stack_size;
+					// as the stack grows downwards, we need to also take into account the size of the variable
+					// when calculating the offset, so we first add the size, then assign the offset
+					// this way, the first variable will be at -var_size, the second at -(var_size1 + var_size2), etc.
+
 					// increase base stack size
 					base_stack_size += var_size;
+					// store variable offset (positive value because it's always negative relative to base pointer)
+					var_info.var_info.cache.offset = base_stack_size;
 				}
 				if (base_stack_size > max_stack_size)
 					max_stack_size = base_stack_size;
@@ -109,6 +113,15 @@ namespace unqlang::compiler {
 		return asm_scope;
 	}
 
+	assembly_variable_info assembly_scope::get_variable(const std::string& name, bool search_parent) const {
+		if (symbol_table.contains(name)) {
+			return symbol_table.at(name);
+		}
+		if (search_parent && parent != nullptr) {
+			return parent->get_variable(name, true);
+		}
+		throw std::runtime_error("Variable not found in scope: " + name);
+	}
 	bool build_scope(
 		const ast_statement_block& block,
 		std::shared_ptr<scope>& out_scope,

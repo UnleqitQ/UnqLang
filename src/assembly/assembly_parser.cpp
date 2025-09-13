@@ -1020,15 +1020,8 @@ namespace assembly {
 				const assembly_memory& mem = std::get<assembly_memory>(comp.value);
 				switch (mem.memory_type) {
 					case assembly_memory::type::DIRECT: {
-						const assembly_literal& lit = std::get<assembly_literal>(mem.value);
-						switch (lit.literal_type) {
-							case assembly_literal::type::NUMBER:
-								os << "MEMORY(DIRECT, NUMBER, " << std::get<int32_t>(lit.value) << ")";
-								break;
-							case assembly_literal::type::LABEL:
-								os << "MEMORY(DIRECT, LABEL, " << std::get<std::string>(lit.value) << ")";
-								break;
-						}
+						const auto& lit = std::get<extended_assembly_literal>(mem.value);
+						os << "MEMORY(DIRECT, " << lit.to_string() << ")";
 						break;
 					}
 					case assembly_memory::type::REGISTER:
@@ -1039,14 +1032,7 @@ namespace assembly {
 						const assembly_memory::displacement& disp = std::get<
 							assembly_memory::displacement>(mem.value);
 						os << "MEMORY(DISPLACEMENT, BASE=" << disp.reg.to_string() << ", DISP=";
-						switch (disp.disp.literal_type) {
-							case assembly_literal::type::NUMBER:
-								os << "NUMBER, " << std::get<int32_t>(disp.disp.value);
-								break;
-							case assembly_literal::type::LABEL:
-								os << "LABEL, " << std::get<std::string>(disp.disp.value);
-								break;
-						}
+						os << disp.disp.to_string();
 						os << ")";
 						break;
 					}
@@ -1062,14 +1048,7 @@ namespace assembly {
 							assembly_memory::scaled_index_displacement>(mem.value);
 						os << "MEMORY(SCALED_INDEX_DISPLACEMENT, BASE=" << sid.base.to_string() << ", INDEX=" << sid.index.
 							to_string() << ", SCALE=" << static_cast<int>(sid.scale) << ", DISP=";
-						switch (sid.disp.literal_type) {
-							case assembly_literal::type::NUMBER:
-								os << "NUMBER, " << std::get<int32_t>(sid.disp.value);
-								break;
-							case assembly_literal::type::LABEL:
-								os << "LABEL, " << std::get<std::string>(sid.disp.value);
-								break;
-						}
+						os << sid.disp.to_string();
 						os << ")";
 						break;
 					}

@@ -12,6 +12,8 @@ namespace machine {
 		switch (op) {
 			case operation::NOP: return "nop";
 			case operation::MOV: return "mov";
+			case operation::MOVSX: return "movsx";
+			case operation::MOVZX: return "movzx";
 			case operation::PUSH: return "push";
 			case operation::POP: return "pop";
 			case operation::LEA: return "lea";
@@ -69,6 +71,22 @@ namespace machine {
 			case operation::CLC: return "clc";
 			case operation::STC: return "stc";
 			case operation::HLT: return "hlt";
+			case operation::SETZ: return "setz";
+			case operation::SETNZ: return "setnz";
+			case operation::SETO: return "seto";
+			case operation::SETNO: return "setno";
+			case operation::SETC: return "setc";
+			case operation::SETNC: return "setnc";
+			case operation::SETS: return "sets";
+			case operation::SETNS: return "setns";
+			case operation::SETG: return "setg";
+			case operation::SETGE: return "setge";
+			case operation::SETL: return "setl";
+			case operation::SETLE: return "setle";
+			case operation::SETA: return "seta";
+			case operation::SETAE: return "setae";
+			case operation::SETB: return "setb";
+			case operation::SETBE: return "setbe";
 			case operation::IN: return "in";
 			case operation::OUT: return "out";
 			default: return "unknown";
@@ -77,6 +95,8 @@ namespace machine {
 	inline operation operation_from_string(const std::string& str) {
 		if (str == "nop") return operation::NOP;
 		if (str == "mov") return operation::MOV;
+		if (str == "movsx") return operation::MOVSX;
+		if (str == "movzx") return operation::MOVZX;
 		if (str == "push") return operation::PUSH;
 		if (str == "pop") return operation::POP;
 		if (str == "lea") return operation::LEA;
@@ -134,6 +154,22 @@ namespace machine {
 		if (str == "clc") return operation::CLC;
 		if (str == "stc") return operation::STC;
 		if (str == "hlt" || str == "end") return operation::HLT;
+		if (str == "setz") return operation::SETZ;
+		if (str == "setnz") return operation::SETNZ;
+		if (str == "seto") return operation::SETO;
+		if (str == "setno") return operation::SETNO;
+		if (str == "setc") return operation::SETC;
+		if (str == "setnc") return operation::SETNC;
+		if (str == "sets") return operation::SETS;
+		if (str == "setns") return operation::SETNS;
+		if (str == "setg") return operation::SETG;
+		if (str == "setge") return operation::SETGE;
+		if (str == "setl") return operation::SETL;
+		if (str == "setle") return operation::SETLE;
+		if (str == "seta") return operation::SETA;
+		if (str == "setae") return operation::SETAE;
+		if (str == "setb") return operation::SETB;
+		if (str == "setbe") return operation::SETBE;
 		if (str == "in") return operation::IN;
 		if (str == "out") return operation::OUT;
 		return operation::NOP; // Default to NOP for unrecognized strings
@@ -225,6 +261,8 @@ namespace machine {
 			}
 			// One read only, one read & write
 			case operation::MOV:
+			case operation::MOVSX:
+			case operation::MOVZX:
 			case operation::ADD:
 			case operation::ADC:
 			case operation::SUB:
@@ -262,7 +300,23 @@ namespace machine {
 			case operation::INC:
 			case operation::DEC:
 			case operation::POP:
-			case operation::IN: {
+			case operation::IN:
+			case operation::SETZ:
+			case operation::SETNZ:
+			case operation::SETO:
+			case operation::SETNO:
+			case operation::SETC:
+			case operation::SETNC:
+			case operation::SETS:
+			case operation::SETNS:
+			case operation::SETG:
+			case operation::SETGE:
+			case operation::SETL:
+			case operation::SETLE:
+			case operation::SETA:
+			case operation::SETAE:
+			case operation::SETB:
+			case operation::SETBE: {
 				const auto& args = inst.args.args_0r;
 				os << ' ' << args.result;
 				break;
@@ -315,6 +369,8 @@ namespace machine {
 				return args.args_1r_mem.get_size() + 1;
 			// One read only, one read & write
 			case operation::MOV:
+			case operation::MOVSX:
+			case operation::MOVZX:
 			case operation::ADD:
 			case operation::ADC:
 			case operation::SUB:
@@ -371,6 +427,22 @@ namespace machine {
 			case operation::JBE:
 			case operation::CALL:
 			case operation::OUT:
+			case operation::SETZ:
+			case operation::SETNZ:
+			case operation::SETO:
+			case operation::SETNO:
+			case operation::SETC:
+			case operation::SETNC:
+			case operation::SETS:
+			case operation::SETNS:
+			case operation::SETG:
+			case operation::SETGE:
+			case operation::SETL:
+			case operation::SETLE:
+			case operation::SETA:
+			case operation::SETAE:
+			case operation::SETB:
+			case operation::SETBE:
 				return args.args_1n.get_size() + 1;
 			// No arguments
 			case operation::NOP:
@@ -383,8 +455,7 @@ namespace machine {
 			case operation::STC:
 			case operation::HLT:
 				return 1;
-			default:
-				return 1; // Default to 1 byte for unrecognized operations
 		}
+		return 1; // Default to 1 byte for unrecognized operations
 	}
 } // namespace machine

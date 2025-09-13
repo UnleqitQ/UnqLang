@@ -874,6 +874,14 @@ namespace machine {
 			case operation::HLT:
 				m_state = execution_state_t::HALTED;
 				break;
+			case operation::SETZ:
+			case operation::SETNZ: {
+				const auto args = instr.args.args_0r;
+				bool condition_met =
+					check_jump_condition(instr.op == operation::SETZ ? operation::JZ : operation::JNZ, m_registers);
+				set_result_value(args.result, condition_met ? 1 : 0);
+				break;
+			}
 			case operation::IN: {
 				// Input operation not implemented
 				break;

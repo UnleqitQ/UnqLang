@@ -1,6 +1,34 @@
 #include "expressions.hpp"
 
 namespace unqlang::analysis::expressions {
+	literal_expression literal_expression::from_ast(const ast_expression_literal& ast_lit) {
+		switch (ast_lit.type) {
+			case ast_expression_literal::type_t::Boolean:
+				return literal_expression(
+					kind_t::BOOL,
+					std::get<bool>(ast_lit.value)
+				);
+			case ast_expression_literal::type_t::Char:
+				return literal_expression(
+					kind_t::CHAR,
+					std::get<char>(ast_lit.value)
+				);
+			case ast_expression_literal::type_t::Integer:
+				return literal_expression(
+					kind_t::INT,
+					std::get<int32_t>(ast_lit.value)
+				);
+			case ast_expression_literal::type_t::String:
+				return literal_expression(
+					kind_t::STRING,
+					std::get<std::string>(ast_lit.value)
+				);
+			case ast_expression_literal::type_t::Null:
+				return literal_expression::make_nullptr();
+			default:
+				throw std::runtime_error("Unknown AST literal type");
+		}
+	}
 	types::type_node binary_expression::get_type(
 		const variables::storage& storage,
 		const functions::storage& func_storage,

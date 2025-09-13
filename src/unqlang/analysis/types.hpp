@@ -9,6 +9,7 @@
 
 #include "types.hpp"
 #include "../ast.hpp"
+#include "../../machine/ram.hpp"
 
 namespace unqlang::analysis::types {
 	struct type_node;
@@ -58,6 +59,30 @@ namespace unqlang::analysis::types {
 		// double (64-bit floating point type)
 		DOUBLE,
 	};
+
+	inline machine::data_size_t to_data_size(primitive_type pt) {
+		switch (pt) {
+			case primitive_type::VOID:
+				throw std::logic_error("Void type has no data size");
+			case primitive_type::BOOL:
+			case primitive_type::SIGNED_CHAR:
+			case primitive_type::UNSIGNED_CHAR:
+				return machine::data_size_t::BYTE;
+			case primitive_type::SIGNED_SHORT:
+			case primitive_type::UNSIGNED_SHORT:
+				return machine::data_size_t::WORD;
+			case primitive_type::SIGNED_INT:
+			case primitive_type::UNSIGNED_INT:
+			case primitive_type::FLOAT:
+				return machine::data_size_t::DWORD;
+			case primitive_type::SIGNED_LONG:
+			case primitive_type::UNSIGNED_LONG:
+			case primitive_type::DOUBLE:
+				throw std::logic_error("64-bit types are not supported in the current machine model");
+			default:
+				throw std::logic_error("Unknown primitive type");
+		}
+	}
 
 	inline primitive_type upper_type(primitive_type a, primitive_type b) {
 		if (a == primitive_type::VOID || b == primitive_type::VOID) {
@@ -369,9 +394,9 @@ namespace unqlang::analysis::types {
 			return m_custom_types.at(name);
 		}
 		type_node resolved_type(const type_node& type) const {
-			type_node result;
-			while (type.kind == type_node::kind_t::CUSTOM) {
-				result = get_type(std::get<std::string>(type.value));
+			type_node result = type;
+			while (result.kind == type_node::kind_t::CUSTOM) {
+				result = get_type(std::get<std::string>(result.value));
 			}
 			return result;
 		}
@@ -431,6 +456,20 @@ namespace unqlang::analysis::types {
 
 		static type_node from_ast(const unqlang::ast_type_node& ast_type);
 	};
+
+	inline type_node pointer_of(const type_node& base) {
+		return type_node(pointer_type(std::make_shared<type_node>(base)));
+	}
+	inline type_node array_of(const type_node& element_type, size_t size) {
+		return type_node(array_type(std::make_shared<type_node>(element_type), size));
+	}
+	inline type_node function_type_of(const type_node& return_type, const std::vector<type_node>& param_types) {
+		std::vector<std::shared_ptr<type_node>> param_types_ptrs;
+		for (const auto& pt : param_types) {
+			param_types_ptrs.push_back(std::make_shared<type_node>(pt));
+		}
+		return type_node(function_type(std::make_shared<type_node>(return_type), param_types_ptrs));
+	}
 } // namespace compiler::analysis::types
 template<>
 struct std::formatter<unqlang::analysis::types::primitive_type> : std::formatter<std::string> {
@@ -450,19 +489,19 @@ struct std::formatter<unqlang::analysis::types::primitive_type> : std::formatter
 				type_str = "unsigned char";
 				break;
 			case unqlang::analysis::types::primitive_type::SIGNED_SHORT:
-				type_str = "signed short";
+				type_str = "short";
 				break;
 			case unqlang::analysis::types::primitive_type::UNSIGNED_SHORT:
 				type_str = "unsigned short";
 				break;
 			case unqlang::analysis::types::primitive_type::SIGNED_INT:
-				type_str = "signed int";
+				type_str = "int";
 				break;
 			case unqlang::analysis::types::primitive_type::UNSIGNED_INT:
 				type_str = "unsigned int";
 				break;
 			case unqlang::analysis::types::primitive_type::SIGNED_LONG:
-				type_str = "signed long";
+				type_str = "long";
 				break;
 			case unqlang::analysis::types::primitive_type::UNSIGNED_LONG:
 				type_str = "unsigned long";

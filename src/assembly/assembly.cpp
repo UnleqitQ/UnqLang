@@ -22,10 +22,33 @@ namespace assembly {
 		}
 		return "";
 	}
+	std::string extended_assembly_literal::to_string(bool hex) const {
+		switch (type) {
+			case type_t::VALUE:
+				return std::get<assembly_literal>(value).to_string(hex);
+			case type_t::ADD: {
+				const auto& op = std::get<binary_operation>(value);
+				return std::format("({} + {})", op.left->to_string(hex), op.right->to_string(hex));
+			}
+			case type_t::SUB: {
+				const auto& op = std::get<binary_operation>(value);
+				return std::format("({} - {})", op.left->to_string(hex), op.right->to_string(hex));
+			}
+			case type_t::MUL: {
+				const auto& op = std::get<binary_operation>(value);
+				return std::format("({} * {})", op.left->to_string(hex), op.right->to_string(hex));
+			}
+			case type_t::DIV: {
+				const auto& op = std::get<binary_operation>(value);
+				return std::format("({} / {})", op.left->to_string(hex), op.right->to_string(hex));
+			}
+		}
+		return "";
+	}
 	std::string assembly_memory::to_string() const {
 		switch (memory_type) {
 			case type::DIRECT:
-				return std::format("[{}]", std::get<assembly_literal>(value).to_string(true));
+				return std::format("[{}]", std::get<extended_assembly_literal>(value).to_string(true));
 			case type::REGISTER:
 				return std::format("[{}]", std::get<machine::register_t>(value).to_string());
 			case type::DISPLACEMENT: {
@@ -73,11 +96,39 @@ namespace assembly {
 		}
 		throw std::runtime_error("Unknown literal type");
 	}
+	uint32_t resolve_literal(const extended_assembly_literal& lit,
+		const std::unordered_map<std::string, uint32_t>& label_map) {
+		switch (lit.type) {
+			case extended_assembly_literal::type_t::VALUE:
+				return resolve_literal(std::get<assembly_literal>(lit.value), label_map);
+			case extended_assembly_literal::type_t::ADD: {
+				const auto& op = std::get<extended_assembly_literal::binary_operation>(lit.value);
+				return resolve_literal(*op.left, label_map) + resolve_literal(*op.right, label_map);
+			}
+			case extended_assembly_literal::type_t::SUB: {
+				const auto& op = std::get<extended_assembly_literal::binary_operation>(lit.value);
+				return resolve_literal(*op.left, label_map) - resolve_literal(*op.right, label_map);
+			}
+			case extended_assembly_literal::type_t::MUL: {
+				const auto& op = std::get<extended_assembly_literal::binary_operation>(lit.value);
+				return resolve_literal(*op.left, label_map) * resolve_literal(*op.right, label_map);
+			}
+			case extended_assembly_literal::type_t::DIV: {
+				const auto& op = std::get<extended_assembly_literal::binary_operation>(lit.value);
+				const auto divisor = resolve_literal(*op.right, label_map);
+				if (divisor == 0) {
+					throw std::runtime_error("Division by zero in literal expression");
+				}
+				return resolve_literal(*op.left, label_map) / divisor;
+			}
+		}
+		throw std::runtime_error("Unknown extended literal type");
+	}
 	machine::memory_operand assemble_memory(const assembly_memory& mem,
 		const std::unordered_map<std::string, uint32_t>& label_map) {
 		switch (mem.memory_type) {
 			case assembly_memory::type::DIRECT: {
-				const auto addr = resolve_literal(std::get<assembly_literal>(mem.value), label_map);
+				const auto addr = resolve_literal(std::get<extended_assembly_literal>(mem.value), label_map);
 				return machine::memory_operand(addr);
 			}
 			case assembly_memory::type::REGISTER: {
@@ -134,18 +185,16 @@ namespace assembly {
 		switch (op.operand_type) {
 			case assembly_operand::type::REGISTER: {
 				const auto reg = std::get<machine::register_t>(op.value);
-				return machine::operand_arg{machine::operand_arg::type_t::REGISTER, {.reg = reg}};
+				return machine::operand_arg{reg};
 			}
 			case assembly_operand::type::LITERAL: {
-				const auto lit = std::get<assembly_literal>(op.value);
+				const auto lit = std::get<extended_assembly_literal>(op.value);
 				const auto imm = resolve_literal(lit, label_map);
-				return machine::operand_arg{machine::operand_arg::type_t::IMMEDIATE, {.imm = static_cast<int32_t>(imm)}};
+				return machine::operand_arg{imm};
 			}
 			case assembly_operand::type::MEMORY_POINTER: {
 				const auto mem = std::get<assembly_memory_pointer>(op.value);
-				return machine::operand_arg{
-					machine::operand_arg::type_t::MEMORY, {.mem = assemble_memory_pointer(mem, label_map)}
-				};
+				return machine::operand_arg{assemble_memory_pointer(mem, label_map)};
 			}
 		}
 		throw std::runtime_error("Unknown operand type");
@@ -284,4 +333,11 @@ namespace assembly {
 		return program;
 	}
 
+	uint32_t program_size(const assembly_program_t& assembly_program) {
+		uint32_t size = 0;
+		for (const auto& comp : assembly_program) {
+			size += comp.instruction_size();
+		}
+		return size;
+	}
 }

@@ -72,6 +72,43 @@ namespace unqlang::analysis::expressions {
 			return !(*this == other);
 		}
 
+		uint32_t as_uint32() const {
+			switch (kind) {
+				case kind_t::CHAR:
+					return static_cast<uint32_t>(std::get<char>(value));
+				case kind_t::UINT:
+					return std::get<unsigned int>(value);
+				case kind_t::INT:
+					return static_cast<uint32_t>(std::get<int>(value));
+				case kind_t::ULONG:
+					return static_cast<uint32_t>(std::get<unsigned long>(value));
+				case kind_t::LONG:
+					return static_cast<uint32_t>(std::get<long>(value));
+				case kind_t::BOOL:
+					return std::get<bool>(value) ? 1 : 0;
+				default:
+					throw std::runtime_error("Cannot convert literal to uint32");
+			}
+		}
+		int32_t as_int32() const {
+			switch (kind) {
+				case kind_t::CHAR:
+					return static_cast<int32_t>(std::get<char>(value));
+				case kind_t::UINT:
+					return static_cast<int32_t>(std::get<unsigned int>(value));
+				case kind_t::INT:
+					return std::get<int>(value);
+				case kind_t::ULONG:
+					return static_cast<int32_t>(std::get<unsigned long>(value));
+				case kind_t::LONG:
+					return static_cast<int32_t>(std::get<long>(value));
+				case kind_t::BOOL:
+					return std::get<bool>(value) ? 1 : 0;
+				default:
+					throw std::runtime_error("Cannot convert literal to int32");
+			}
+		}
+
 		static literal_expression make_nullptr() {
 			return literal_expression(kind_t::NULLPTR, std::monostate{});
 		}
@@ -378,4 +415,318 @@ namespace unqlang::analysis::expressions {
 		static expression_node from_ast(const ast_expression_node& ast_expr);
 	};
 
+	inline expression_node make_literal(const literal_expression& lit) {
+		return expression_node(literal_expression(lit));
+	}
+	inline expression_node make_identifier(const std::string& id) {
+		return expression_node(identifier_expression(id));
+	}
+	inline unary_expression make_unary(unary_expression::operator_t op, const expression_node& operand) {
+		return unary_expression(op, std::make_shared<expression_node>(operand));
+	}
+	inline binary_expression make_binary(binary_expression::operator_t op, const expression_node& left,
+		const expression_node& right) {
+		return binary_expression(op, std::make_shared<expression_node>(left),
+			std::make_shared<expression_node>(right));
+	}
 } // unqlang::analysis::expressions
+
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::expression_node,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::expression_node& expr, auto& ctx) const;
+};
+
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::literal_expression,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::literal_expression& lit, auto& ctx) const {
+		std::string repr;
+		switch (lit.kind) {
+			case unqlang::analysis::expressions::literal_expression::kind_t::NULLPTR:
+				repr = "nullptr";
+				break;
+			case unqlang::analysis::expressions::literal_expression::kind_t::CHAR:
+				repr = std::format("'{}'", std::get<char>(lit.value));
+				break;
+			case unqlang::analysis::expressions::literal_expression::kind_t::UINT:
+				repr = std::to_string(std::get<unsigned int>(lit.value)) + "u";
+				break;
+			case unqlang::analysis::expressions::literal_expression::kind_t::INT:
+				repr = std::to_string(std::get<int>(lit.value));
+				break;
+			case unqlang::analysis::expressions::literal_expression::kind_t::ULONG:
+				repr = std::to_string(std::get<unsigned long>(lit.value)) + "ul";
+				break;
+			case unqlang::analysis::expressions::literal_expression::kind_t::LONG:
+				repr = std::to_string(std::get<long>(lit.value)) + "l";
+				break;
+			case unqlang::analysis::expressions::literal_expression::kind_t::FLOAT:
+				repr = std::to_string(std::get<float>(lit.value)) + "f";
+				break;
+			case unqlang::analysis::expressions::literal_expression::kind_t::DOUBLE:
+				repr = std::to_string(std::get<double>(lit.value));
+				break;
+			case unqlang::analysis::expressions::literal_expression::kind_t::STRING:
+				repr = std::format("\"{}\"", std::get<std::string>(lit.value));
+				break;
+			case unqlang::analysis::expressions::literal_expression::kind_t::BOOL:
+				repr = std::get<bool>(lit.value) ? "true" : "false";
+				break;
+			default:
+				repr = "<unknown literal>";
+				break;
+		}
+		return std::formatter<std::string, char>::format(repr, ctx);
+	}
+};
+
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::identifier_expression,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::identifier_expression& id, auto& ctx) const {
+		return std::formatter<std::string, char>::format(id.name, ctx);
+	}
+};
+
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::binary_expression::operator_t,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::binary_expression::operator_t& op, auto& ctx) const {
+		std::string repr;
+		switch (op) {
+			case unqlang::analysis::expressions::binary_expression::operator_t::ADD:
+				repr = "+";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::SUB:
+				repr = "-";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::MUL:
+				repr = "*";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::DIV:
+				repr = "/";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::MOD:
+				repr = "%";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::AND:
+				repr = "&";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::OR:
+				repr = "|";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::XOR:
+				repr = "^";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::SHL:
+				repr = "<<";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::SHR:
+				repr = ">>";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::LAND:
+				repr = "&&";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::LOR:
+				repr = "||";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::EQ:
+				repr = "==";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::NEQ:
+				repr = "!=";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::LT:
+				repr = "<";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::GT:
+				repr = ">";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::LTE:
+				repr = "<=";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::GTE:
+				repr = ">=";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::ASSIGN:
+				repr = "=";
+				break;
+			case unqlang::analysis::expressions::binary_expression::operator_t::ARRAY_SUBSCRIPT:
+				repr = "[]";
+				break;
+			default:
+				repr = "<unknown binary operator>";
+				break;
+		}
+		return std::formatter<std::string, char>::format(repr, ctx);
+	}
+};
+
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::binary_expression,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::binary_expression& bin, auto& ctx) const {
+		std::string repr;
+		if (bin.op == unqlang::analysis::expressions::binary_expression::operator_t::ARRAY_SUBSCRIPT) {
+			repr = std::format("{}[{}]", *bin.left, *bin.right);
+		}
+		else {
+			repr = std::format("({} {} {})", *bin.left, bin.op, *bin.right);
+		}
+		return std::formatter<std::string, char>::format(repr, ctx);
+	}
+};
+
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::unary_expression::operator_t,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::unary_expression::operator_t& op, auto& ctx) const {
+		std::string repr;
+		switch (op) {
+			case unqlang::analysis::expressions::unary_expression::operator_t::PLUS:
+				repr = "+";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::MINUS:
+				repr = "-";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::PRE_INC:
+				repr = "++";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::PRE_DEC:
+				repr = "--";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::POST_INC:
+				repr = "++";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::POST_DEC:
+				repr = "--";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::NOT:
+				repr = "~";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::LNOT:
+				repr = "!";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::DEREFERENCE:
+				repr = "*";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::ADDRESS_OF:
+				repr = "&";
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::SIZEOF:
+				repr = "sizeof";
+				break;
+			default:
+				repr = "<unknown unary operator>";
+				break;
+		}
+		return std::formatter<std::string, char>::format(repr, ctx);
+	}
+};
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::unary_expression,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::unary_expression& un, auto& ctx) const {
+		std::string repr;
+		switch (un.op) {
+			case unqlang::analysis::expressions::unary_expression::operator_t::ADDRESS_OF:
+			case unqlang::analysis::expressions::unary_expression::operator_t::DEREFERENCE:
+			case unqlang::analysis::expressions::unary_expression::operator_t::LNOT:
+			case unqlang::analysis::expressions::unary_expression::operator_t::NOT:
+			case unqlang::analysis::expressions::unary_expression::operator_t::PLUS:
+			case unqlang::analysis::expressions::unary_expression::operator_t::MINUS:
+			case unqlang::analysis::expressions::unary_expression::operator_t::PRE_INC:
+			case unqlang::analysis::expressions::unary_expression::operator_t::PRE_DEC:
+				repr = std::format("({}{})", un.op, *un.operand);
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::POST_INC:
+			case unqlang::analysis::expressions::unary_expression::operator_t::POST_DEC:
+				repr = std::format("({}{})", *un.operand, un.op);
+				break;
+			case unqlang::analysis::expressions::unary_expression::operator_t::SIZEOF:
+				repr = std::format("({} {})", un.op, *un.operand);
+				break;
+			default:
+				repr = std::format("({}{})", un.op, *un.operand);
+				break;
+		}
+		return std::formatter<std::string, char>::format(repr, ctx);
+	}
+};
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::call_expression,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::call_expression& call, auto& ctx) const {
+		std::string args_repr;
+		for (size_t i = 0; i < call.arguments.size(); ++i) {
+			args_repr += std::format("{}", *call.arguments[i]);
+			if (i < call.arguments.size() - 1) {
+				args_repr += ", ";
+			}
+		}
+		std::string repr = std::format("{}({})", *call.callee, args_repr);
+		return std::formatter<std::string, char>::format(repr, ctx);
+	}
+};
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::member_expression,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::member_expression& mem, auto& ctx) const {
+		std::string repr = std::format("{}{}{}", *mem.object, mem.pointer ? "->" : ".", mem.member);
+		return std::formatter<std::string, char>::format(repr, ctx);
+	}
+};
+template<>
+struct std::formatter<
+		unqlang::analysis::expressions::ternary_expression,
+		char> : std::formatter<std::string, char> {
+	auto format(const unqlang::analysis::expressions::ternary_expression& ter, auto& ctx) const {
+		std::string repr = std::format("({} ? {} : {})", *ter.condition, *ter.then_branch, *ter.else_branch);
+		return std::formatter<std::string, char>::format(repr, ctx);
+	}
+};
+auto std::formatter<
+	unqlang::analysis::expressions::expression_node,
+	char>::format(const unqlang::analysis::expressions::expression_node& expr, auto& ctx) const {
+	std::string repr;
+	switch (expr.kind) {
+		case unqlang::analysis::expressions::expression_node::kind_t::LITERAL:
+			repr = std::format("{}", std::get<unqlang::analysis::expressions::literal_expression>(expr.value));
+			break;
+		case unqlang::analysis::expressions::expression_node::kind_t::IDENTIFIER:
+			repr = std::format("{}", std::get<unqlang::analysis::expressions::identifier_expression>(expr.value));
+			break;
+		case unqlang::analysis::expressions::expression_node::kind_t::BINARY:
+			repr = std::format("{}", std::get<unqlang::analysis::expressions::binary_expression>(expr.value));
+			break;
+		case unqlang::analysis::expressions::expression_node::kind_t::UNARY:
+			repr = std::format("{}", std::get<unqlang::analysis::expressions::unary_expression>(expr.value));
+			break;
+		case unqlang::analysis::expressions::expression_node::kind_t::CALL:
+			repr = std::format("{}", std::get<unqlang::analysis::expressions::call_expression>(expr.value));
+			break;
+		case unqlang::analysis::expressions::expression_node::kind_t::MEMBER:
+			repr = std::format("{}", std::get<unqlang::analysis::expressions::member_expression>(expr.value));
+			break;
+		case unqlang::analysis::expressions::expression_node::kind_t::TERNARY:
+			repr = std::format("{}", std::get<unqlang::analysis::expressions::ternary_expression>(expr.value));
+			break;
+		case unqlang::analysis::expressions::expression_node::kind_t::UNKNOWN:
+			repr = "<unknown expression>";
+			break;
+		default:
+			repr = "<unknown expression>";
+			break;
+	}
+	return std::formatter<std::string, char>::format(repr, ctx);
+}

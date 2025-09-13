@@ -1,12 +1,16 @@
 #pragma once
-#include <cstdint>
 
+#include "../../machine/register.hpp"
 #include "../analysis/types.hpp"
 #include "../analysis/functions.hpp"
-#include "../analysis/expressions.hpp"
 #include "../analysis/variables.hpp"
 
 namespace unqlang::compiler {
+	struct assembly_function_signature;
+}
+
+namespace unqlang::compiler {
+
 	union regmask {
 		struct {
 			uint8_t eax : 1;
@@ -20,6 +24,90 @@ namespace unqlang::compiler {
 			// eip is not included as there is no way to use it directly
 		};
 		uint16_t raw;
+
+		regmask() : raw(0) {
+		}
+		void set(machine::register_id r, bool used) {
+			switch (r) {
+				case machine::register_id::eax:
+					eax = used;
+					break;
+				case machine::register_id::ebx:
+					ebx = used;
+					break;
+				case machine::register_id::ecx:
+					ecx = used;
+					break;
+				case machine::register_id::edx:
+					edx = used;
+					break;
+				case machine::register_id::esi:
+					esi = used;
+					break;
+				case machine::register_id::edi:
+					edi = used;
+					break;
+				case machine::register_id::ebp:
+					ebp = used;
+					break;
+				case machine::register_id::esp:
+					esp = used;
+					break;
+				default:
+					throw std::runtime_error("Cannot set usage for this register");
+			}
+		}
+		bool get(machine::register_id r) const {
+			switch (r) {
+				case machine::register_id::eax:
+					return eax;
+				case machine::register_id::ebx:
+					return ebx;
+				case machine::register_id::ecx:
+					return ecx;
+				case machine::register_id::edx:
+					return edx;
+				case machine::register_id::esi:
+					return esi;
+				case machine::register_id::edi:
+					return edi;
+				case machine::register_id::ebp:
+					return ebp;
+				case machine::register_id::esp:
+					return esp;
+				default:
+					throw std::runtime_error("Cannot get usage for this register");
+			}
+		}
+		regmask operator|(const regmask& other) const {
+			regmask result;
+			result.raw = raw | other.raw;
+			return result;
+		}
+		regmask& operator|=(const regmask& other) {
+			raw |= other.raw;
+			return *this;
+		}
+		regmask operator&(const regmask& other) const {
+			regmask result;
+			result.raw = raw & other.raw;
+			return result;
+		}
+		regmask& operator&=(const regmask& other) {
+			raw &= other.raw;
+			return *this;
+		}
+
+		static constexpr std::array<machine::register_id, 8> USABLE_REGISTERS = {
+			machine::register_id::eax,
+			machine::register_id::ebx,
+			machine::register_id::ecx,
+			machine::register_id::edx,
+			machine::register_id::esi,
+			machine::register_id::edi,
+			machine::register_id::ebp,
+			machine::register_id::esp
+		};
 	};
 	struct compilation_context {
 		// type system for type information
@@ -62,6 +150,9 @@ namespace unqlang::compiler {
 
 		// variable storage for this scope
 		std::shared_ptr<analysis::variables::storage> variable_storage;
+
+		// current function being compiled, nullptr if not in a function
+		std::shared_ptr<assembly_function_signature> current_function_signature = nullptr;
 
 		scoped_compilation_context(
 			const std::shared_ptr<compilation_context>& global_ctx,

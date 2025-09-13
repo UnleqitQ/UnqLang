@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <map>
 
-#include "common.hpp"
 #include "variable.hpp"
 
 namespace unqlang::compiler {
@@ -122,15 +121,18 @@ namespace unqlang::compiler {
 		uint32_t cumulative_stack_size;
 		// offset from base pointer where this scope's variables start
 		uint32_t base_offset;
-		// registers used in this scope
-		regmask used_registers;
-		// registers that need to be saved/restored in this scope
-		regmask saved_registers;
-		// registers that are changed in this scope (but not saved/restored, e.g. caller-saved registers)
-		regmask changed_registers;
 
 		// whether all code paths in this scope return
 		bool all_paths_return = false;
+
+		assembly_scope() : parent(nullptr), stack_size(0), cumulative_stack_size(0), base_offset(0), all_paths_return(false) {
+		}
+		assembly_scope(std::shared_ptr<assembly_scope> parent, uint32_t base_offset = 0)
+			: parent(parent), stack_size(0), cumulative_stack_size(0), base_offset(base_offset), all_paths_return(false) {
+		}
+
+		// get variable info by name, search parent scopes if not found and search_parent is true
+		assembly_variable_info get_variable(const std::string& name, bool search_parent = true) const;
 	};
 
 	/**
@@ -175,8 +177,8 @@ struct std::formatter<unqlang::compiler::assembly_scope> : std::formatter<std::s
 	auto format(const unqlang::compiler::assembly_scope& scp, std::format_context& ctx) const {
 		return std::formatter<std::string>::format(
 			std::format(
-				"assembly_scope(stack_size={}, cumulative_stack_size={}, base_offset={}, variables=[{}], children={},\n"
-				"used_registers={}, saved_registers={}, changed_registers={}, all_paths_return={})",
+				"assembly_scope(stack_size={}, cumulative_stack_size={}, base_offset={}, "
+				"variables=[{}], children={}, all_paths_return={})",
 				scp.stack_size,
 				scp.cumulative_stack_size,
 				scp.base_offset,
@@ -190,9 +192,6 @@ struct std::formatter<unqlang::compiler::assembly_scope> : std::formatter<std::s
 					return vars;
 				}(),
 				scp.children.size(),
-				scp.used_registers,
-				scp.saved_registers,
-				scp.changed_registers,
 				scp.all_paths_return
 			),
 			ctx

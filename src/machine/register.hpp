@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <stdexcept>
 
+#include "ram.hpp"
+
 namespace machine {
 	enum class register_id : uint8_t {
 		eax = 0,
@@ -34,8 +36,28 @@ namespace machine {
 	struct register_t {
 		register_id id : 5;
 		register_access access : 2;
-		constexpr explicit register_t(register_id id, register_access access = register_access::dword)
+		constexpr register_t(register_id id, register_access access = register_access::dword)
 			: id(id), access(access) {
+			if (static_cast<uint8_t>(id) > 5 && static_cast<uint8_t>(access) > 1) {
+				throw std::runtime_error("Invalid access type for this register");
+			}
+			if (id == register_id::flags && access != register_access::dword) {
+				throw std::runtime_error("Flags register must be accessed as dword");
+			}
+		}
+		constexpr register_t(register_id id, data_size_t size)
+			: id(id), access([size] {
+				switch (size) {
+					case data_size_t::BYTE:
+						return register_access::low_byte;
+					case data_size_t::WORD:
+						return register_access::word;
+					case data_size_t::DWORD:
+						return register_access::dword;
+					default:
+						throw std::runtime_error("Invalid data size for register access");
+				}
+			}()) {
 			if (static_cast<uint8_t>(id) > 5 && static_cast<uint8_t>(access) > 1) {
 				throw std::runtime_error("Invalid access type for this register");
 			}
