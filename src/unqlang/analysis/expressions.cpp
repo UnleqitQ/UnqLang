@@ -257,11 +257,28 @@ namespace unqlang::analysis::expressions {
 		}
 
 		types::function_type func_type;
-		auto callee_type = callee->get_type(storage, func_storage, type_sys);
-		if (callee_type.kind != types::type_node::kind_t::FUNCTION) {
-			throw std::runtime_error("Callee is not a function type");
+		if (callee->kind != expression_node::kind_t::IDENTIFIER ||
+			storage.is_variable_declared(std::get<identifier_expression>(callee->value).name)) {
+			auto callee_type = callee->get_type(storage, func_storage, type_sys);
+			if (callee_type.kind != types::type_node::kind_t::FUNCTION) {
+				throw std::runtime_error("Callee is not a function type");
+			}
+			func_type = std::get<types::function_type>(callee_type.value);
 		}
-		func_type = std::get<types::function_type>(callee_type.value);
+		else if (func_storage.is_function_declared(
+						std::get<identifier_expression>(callee->value).name)) {
+			auto func_info = func_storage.get_function(
+				std::get<identifier_expression>(callee->value).name
+			);
+			func_type.parameter_types.reserve(func_info.parameter_types.size());
+			for (const auto& param : func_info.parameter_types) {
+				func_type.parameter_types.push_back(std::make_shared<types::type_node>(param));
+			}
+			func_type.return_type = std::make_shared<types::type_node>(func_info.return_type);
+		}
+		else {
+			throw std::runtime_error("Callee is not a declared function or a function pointer");
+		}
 
 		// check argument types
 		if (func_type.parameter_types.size() != arguments.size()) {

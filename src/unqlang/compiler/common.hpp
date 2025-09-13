@@ -98,15 +98,13 @@ namespace unqlang::compiler {
 			return *this;
 		}
 
-		static constexpr std::array<machine::register_id, 8> USABLE_REGISTERS = {
+		static constexpr std::array<machine::register_id, 6> USABLE_REGISTERS = {
 			machine::register_id::eax,
 			machine::register_id::ebx,
 			machine::register_id::ecx,
 			machine::register_id::edx,
 			machine::register_id::esi,
-			machine::register_id::edi,
-			machine::register_id::ebp,
-			machine::register_id::esp
+			machine::register_id::edi
 		};
 	};
 	struct compilation_context {

@@ -470,6 +470,13 @@ namespace unqlang::analysis::types {
 		}
 		return type_node(function_type(std::make_shared<type_node>(return_type), param_types_ptrs));
 	}
+	inline type_node struct_of(const std::initializer_list<std::pair<std::string, type_node>>& members_list) {
+		struct_type st;
+		for (const auto& [name, type] : members_list) {
+			st.members.emplace_back(name, std::make_shared<type_node>(type));
+		}
+		return type_node(st);
+	}
 } // namespace compiler::analysis::types
 template<>
 struct std::formatter<unqlang::analysis::types::primitive_type> : std::formatter<std::string> {

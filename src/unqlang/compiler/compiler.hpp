@@ -79,6 +79,7 @@ namespace unqlang::compiler {
 	 * @param current_scope The current assembly scope.
 	 * @param target_reg The register to store the result in.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param store_value Whether to store the computed value in the target register. If false, the expression is evaluated but the result may not be stored.
 	 */
 	void compile_primitive_expression(
 		const analysis::expressions::expression_node& expr,
@@ -86,7 +87,8 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		machine::register_t target_reg,
-		regmask used_regs
+		regmask used_regs,
+		bool store_value = true
 	);
 
 	/**

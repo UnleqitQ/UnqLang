@@ -429,6 +429,17 @@ namespace unqlang::analysis::expressions {
 		return binary_expression(op, std::make_shared<expression_node>(left),
 			std::make_shared<expression_node>(right));
 	}
+	inline call_expression make_call(const expression_node& callee,
+		const std::vector<expression_node>& args) {
+		std::vector<std::shared_ptr<expression_node>> arg_ptrs;
+		for (const auto& arg : args) {
+			arg_ptrs.push_back(std::make_shared<expression_node>(arg));
+		}
+		return call_expression(std::make_shared<expression_node>(callee), std::move(arg_ptrs));
+	}
+	inline member_expression make_member(const expression_node& object, const std::string& member, bool pointer) {
+		return member_expression(std::make_shared<expression_node>(object), member, pointer);
+	}
 } // unqlang::analysis::expressions
 
 template<>

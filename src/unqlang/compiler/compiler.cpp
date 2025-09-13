@@ -1109,7 +1109,12 @@ namespace unqlang::compiler {
 						));
 						return;
 					}
+					default:
+						break;
 				}
+				break;
+			}
+			case analysis::expressions::expression_node::kind_t::BINARY: {
 			}
 		}
 	}
@@ -1120,7 +1125,8 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		machine::register_t target_reg,
-		regmask used_regs
+		regmask used_regs,
+		bool store_value
 	) {
 		auto dest_type = context.global_context->type_system->resolved_type(
 			expr.get_type(
@@ -1129,6 +1135,442 @@ namespace unqlang::compiler {
 				*context.global_context->type_system
 			)
 		);
+		if (expr.kind == analysis::expressions::expression_node::kind_t::MEMBER) {
+			const auto& member_access = std::get<analysis::expressions::member_expression>(expr.value);
+			// get the type of the object
+			auto base_object_type = member_access.object->get_type(
+				*context.variable_storage,
+				*context.global_context->function_storage,
+				*context.global_context->type_system
+			);
+			auto resolved_base_object_type = context.global_context->type_system->resolved_type(base_object_type);
+			analysis::types::type_node object_type;
+			if (member_access.pointer) {
+				if (resolved_base_object_type.kind != analysis::types::type_node::kind_t::POINTER) {
+					throw std::runtime_error("Base object of pointer member access must be a pointer");
+				}
+				auto ptr_type = std::get<analysis::types::pointer_type>(resolved_base_object_type.value);
+				object_type = context.global_context->type_system->resolved_type(*ptr_type.pointee_type);
+			}
+			else
+				object_type = resolved_base_object_type;
+			assembly::assembly_program_t temp_program;
+			used_regs.set(target_reg.id, false);
+			auto ref = compile_reference(*member_access.object, context, temp_program, current_scope, used_regs);
+			regmask ref_regs = get_containing_regs(ref);
+			regmask overlap = ref_regs & used_regs;
+			// save overlapping registers
+			std::vector<machine::register_t> saved_regs;
+			for (const auto r : regmask::USABLE_REGISTERS) {
+				if (overlap.get(r)) {
+					program.emplace_back(assembly::assembly_instruction(
+						machine::operation::PUSH,
+						assembly::assembly_operand{r}
+					));
+					saved_regs.emplace_back(r);
+				}
+			}
+			// insert the temp program now
+			program.insert(program.end(), temp_program.begin(), temp_program.end());
+			// pointers and function pointers are always 4 bytes
+			machine::data_size_t mem_size = dest_type.kind == analysis::types::type_node::kind_t::PRIMITIVE
+				? analysis::types::to_data_size(std::get<analysis::types::primitive_type>(dest_type.value))
+				: machine::data_size_t::DWORD;
+			// copy the value to target_reg
+			if (member_access.pointer) {
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::MOV,
+					assembly::assembly_result(target_reg.id),
+					assembly::assembly_operand({
+						machine::data_size_t::DWORD,
+						ref
+					})
+				));
+				// now target_reg contains the address of the object, so we need to load the member from that address
+				if (object_type.kind == analysis::types::type_node::kind_t::STRUCT) {
+					auto struct_type = std::get<analysis::types::struct_type>(object_type.value);
+					auto member_info = context.global_context->type_system->get_struct_member_info(struct_type,
+						member_access.member);
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result(target_reg),
+						assembly::assembly_operand({
+							mem_size,
+							assembly::assembly_memory(
+								target_reg.id,
+								static_cast<int32_t>(member_info.offset)
+							)
+						})
+					));
+				}
+				else if (object_type.kind == analysis::types::type_node::kind_t::UNION) {
+					// just load the base object
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result(target_reg),
+						assembly::assembly_operand({
+							mem_size,
+							assembly::assembly_memory(target_reg.id)
+						})
+					));
+				}
+				else {
+					throw std::runtime_error("Base object of member access must be a struct or union");
+				}
+			}
+			else {
+				if (object_type.kind == analysis::types::type_node::kind_t::STRUCT) {
+					auto struct_type = std::get<analysis::types::struct_type>(object_type.value);
+					auto member_info = context.global_context->type_system->get_struct_member_info(struct_type,
+						member_access.member);
+					// load the member into target_reg
+					switch (ref.memory_type) {
+						case assembly::assembly_memory::type::DIRECT: {
+							// direct memory access, just add offset to address
+							auto val = std::get<assembly::extended_assembly_literal>(ref.value);
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::MOV,
+								assembly::assembly_result(target_reg),
+								assembly::assembly_operand({
+									mem_size,
+									assembly::assembly_memory(
+										assembly::extended_assembly_literal(
+											assembly::extended_assembly_literal::type_t::ADD,
+											std::make_shared<assembly::extended_assembly_literal>(val),
+											std::make_shared<assembly::extended_assembly_literal>(
+												assembly::assembly_literal(static_cast<int32_t>(member_info.offset))
+											)
+										)
+									)
+								})
+							));
+							break;
+						}
+						case assembly::assembly_memory::type::REGISTER: {
+							// register, create displacement
+							auto reg = std::get<machine::register_t>(ref.value);
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::MOV,
+								assembly::assembly_result(target_reg),
+								assembly::assembly_operand({
+									mem_size,
+									assembly::assembly_memory(
+										reg,
+										static_cast<int32_t>(member_info.offset)
+									)
+								})
+							));
+							break;
+						}
+						case assembly::assembly_memory::type::DISPLACEMENT: {
+							// displacement, add to existing displacement
+							auto disp = std::get<assembly::assembly_memory::displacement>(ref.value);
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::MOV,
+								assembly::assembly_result(target_reg),
+								assembly::assembly_operand({
+									mem_size,
+									assembly::assembly_memory(
+										disp.reg,
+										assembly::extended_assembly_literal(
+											assembly::extended_assembly_literal::type_t::ADD,
+											std::make_shared<assembly::extended_assembly_literal>(disp.disp),
+											std::make_shared<assembly::extended_assembly_literal>(
+												assembly::assembly_literal(static_cast<int32_t>(member_info.offset))
+											)
+										)
+									)
+								})
+							));
+							break;
+						}
+						case assembly::assembly_memory::type::SCALED_INDEX: {
+							// scaled index, add to existing displacement
+							auto si = std::get<assembly::assembly_memory::scaled_index>(ref.value);
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::MOV,
+								assembly::assembly_result(target_reg),
+								assembly::assembly_operand({
+									mem_size,
+									assembly::assembly_memory(
+										si.base,
+										si.index,
+										si.scale,
+										assembly::assembly_literal(static_cast<int32_t>(member_info.offset))
+									)
+								})
+							));
+							break;
+						}
+						case assembly::assembly_memory::type::SCALED_INDEX_DISPLACEMENT: {
+							// scaled index with displacement, add to existing displacement
+							auto sid = std::get<assembly::assembly_memory::scaled_index_displacement>(ref.value);
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::MOV,
+								assembly::assembly_result(target_reg),
+								assembly::assembly_operand({
+									mem_size,
+									assembly::assembly_memory(
+										sid.base,
+										sid.index,
+										sid.scale,
+										assembly::extended_assembly_literal(
+											assembly::extended_assembly_literal::type_t::ADD,
+											std::make_shared<assembly::extended_assembly_literal>(sid.disp),
+											std::make_shared<assembly::extended_assembly_literal>(
+												assembly::assembly_literal(static_cast<int32_t>(member_info.offset))
+											)
+										)
+									)
+								})
+							));
+							break;
+						}
+					}
+				}
+				else if (object_type.kind == analysis::types::type_node::kind_t::UNION) {
+					// just load the base object
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result(target_reg),
+						assembly::assembly_operand({
+							mem_size,
+							ref
+						})
+					));
+				}
+				else {
+					throw std::runtime_error("Base object of member access must be a struct or union");
+				}
+			}
+			// now restore the saved registers
+			for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
+				program.emplace_back(assembly::assembly_instruction(
+					machine::operation::POP,
+					assembly::assembly_result{*it}
+				));
+			}
+			return;
+		}
+		if (expr.kind == analysis::expressions::expression_node::kind_t::CALL) {
+			const auto& call = std::get<analysis::expressions::call_expression>(expr.value);
+			enum class call_type_t {
+				Direct,
+				Variable,
+				Complex
+			};
+			call_type_t call_type;
+			analysis::types::function_type func_type;
+			if (call.callee->kind == analysis::expressions::expression_node::kind_t::IDENTIFIER &&
+				!context.variable_storage->is_variable_declared(
+					std::get<analysis::expressions::identifier_expression>(call.callee->value).name)) {
+				// global function
+				call_type = call_type_t::Direct;
+				const auto& func_info =
+					context.global_context->function_storage->get_function(
+						std::get<analysis::expressions::identifier_expression>(call.callee->value).name
+					);
+				func_type.parameter_types.reserve(func_info.parameter_types.size());
+				for (const auto& param : func_info.parameter_types) {
+					func_type.parameter_types.emplace_back(std::make_shared<analysis::types::type_node>(param));
+				}
+				func_type.return_type = std::make_shared<analysis::types::type_node>(func_info.return_type);
+			}
+			else {
+				auto callee_type = call.callee->get_type(
+					*context.variable_storage,
+					*context.global_context->function_storage,
+					*context.global_context->type_system
+				);
+				auto resolved_callee_type = context.global_context->type_system->resolved_type(callee_type);
+				if (resolved_callee_type.kind != analysis::types::type_node::kind_t::FUNCTION) {
+					throw std::runtime_error("Callee expression does not evaluate to a function");
+				}
+				func_type = std::get<analysis::types::function_type>(resolved_callee_type.value);
+				if (call.callee->kind == analysis::expressions::expression_node::kind_t::IDENTIFIER) {
+					call_type = call_type_t::Variable;
+				}
+				else {
+					call_type = call_type_t::Complex;
+					// complex expression, need to evaluate to get address
+					used_regs.set(target_reg.id, false);
+					compile_primitive_expression(*call.callee, context, program, current_scope,
+						target_reg, used_regs);
+					used_regs.set(target_reg.id, true);
+				}
+			}
+			uint32_t param_stack_size = 0;
+			for (const auto& param_type : func_type.parameter_types) {
+				param_stack_size += context.global_context->type_system->get_type_size(*param_type);
+			}
+			uint32_t ret_size = context.global_context->type_system->get_type_size(*func_type.return_type);
+			if (param_stack_size < ret_size) {
+				program.emplace_back(assembly::assembly_instruction(
+					machine::operation::SUB,
+					assembly::assembly_result({machine::register_id::esp, machine::register_access::dword}),
+					assembly::assembly_operand(ret_size - param_stack_size)
+				));
+			}
+			machine::register_id param_reg = find_free_register(
+				used_regs,
+				{machine::register_id::edx, machine::register_id::ebx, machine::register_id::ecx, machine::register_id::eax},
+				{target_reg.id}
+			);
+			const bool param_reg_used = used_regs.get(param_reg);
+			if (param_reg_used) {
+				// need to save param_reg
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::PUSH,
+					assembly::assembly_operand({param_reg, machine::register_access::dword})
+				));
+			}
+			used_regs.set(param_reg, false);
+			// push parameters in reverse order
+			for (int i = static_cast<int>(call.arguments.size()) - 1; i >= 0; --i) {
+				auto arg = call.arguments[i];
+				auto param_type = func_type.parameter_types[i];
+				auto resolved_param_type = context.global_context->type_system->resolved_type(*param_type);
+				auto arg_type = arg->get_type(
+					*context.variable_storage,
+					*context.global_context->function_storage,
+					*context.global_context->type_system
+				);
+				auto resolved_arg_type = context.global_context->type_system->resolved_type(arg_type);
+				if (resolved_param_type.kind != analysis::types::type_node::kind_t::PRIMITIVE &&
+					resolved_param_type.kind != analysis::types::type_node::kind_t::POINTER &&
+					resolved_param_type.kind != analysis::types::type_node::kind_t::FUNCTION) {
+					throw std::runtime_error("Currently only supports primitives, pointers and functions as parameters");
+				}
+				if (resolved_param_type.kind == analysis::types::type_node::kind_t::PRIMITIVE &&
+					resolved_arg_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
+					// both are primitive, check if they are compatible
+					auto param_prim_type = std::get<analysis::types::primitive_type>(resolved_param_type.value);
+					auto arg_prim_type = std::get<analysis::types::primitive_type>(resolved_arg_type.value);
+					if (!analysis::types::can_implicitly_convert(arg_prim_type, param_prim_type)) {
+						throw std::runtime_error("Argument type does not match function signature");
+					}
+				}
+				else if (!context.global_context->type_system->is_equivalent(resolved_param_type, resolved_arg_type)) {
+					throw std::runtime_error("Argument type does not match function signature");
+				}
+				machine::data_size_t param_size = resolved_param_type.kind == analysis::types::type_node::kind_t::PRIMITIVE
+					? analysis::types::to_data_size(std::get<analysis::types::primitive_type>(resolved_param_type.value))
+					: machine::data_size_t::DWORD;
+				compile_primitive_expression(*arg, context, program, current_scope,
+					{param_reg, param_size}, used_regs);
+				// push param_reg onto stack
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::PUSH,
+					assembly::assembly_operand({param_reg, param_size})
+				));
+			}
+			// now call the function
+			if (call_type == call_type_t::Direct) {
+				const auto& function_label = generate_function_label(
+					std::get<analysis::expressions::identifier_expression>(call.callee->value).name
+				);
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::CALL,
+					assembly::assembly_operand(function_label)
+				));
+			}
+			else if (call_type == call_type_t::Variable) {
+				const auto& ident = std::get<analysis::expressions::identifier_expression>(call.callee->value);
+				if (!context.variable_storage->is_variable_declared(ident.name)) {
+					throw std::runtime_error("Variable not found: " + ident.name);
+				}
+				const auto declaring_scope = context.variable_storage->get_declaring_scope(ident.name);
+				const auto var_info = declaring_scope->get_variable(ident.name, false);
+				switch (declaring_scope->storage_type) {
+					case analysis::variables::storage::storage_type_t::Global:
+						throw std::runtime_error("Loading global variables is not supported yet");
+					case analysis::variables::storage::storage_type_t::Function: {
+						// Variable is a parameter passed to the function
+						auto func_sig = context.current_function_signature;
+						if (func_sig == nullptr) {
+							throw std::runtime_error("Current function signature is null");
+						}
+						// find the parameter index
+						uint32_t idx = func_sig->name_index_map.at(ident.name);
+						auto param = func_sig->parameters[idx];
+						uint32_t offset = param.offset;
+						// move the parameter to the target register
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::CALL,
+							assembly::assembly_operand({
+								machine::data_size_t::DWORD,
+								assembly::assembly_memory(
+									machine::register_t{machine::register_id::ebp},
+									static_cast<int32_t>(offset)
+								)
+							})
+						));
+						break;
+					}
+					case analysis::variables::storage::storage_type_t::Block: {
+						// Variable is a local variable
+						auto var = current_scope.get_variable(ident.name, true);
+						// offset is negative from ebp
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::CALL,
+							assembly::assembly_operand({
+								machine::data_size_t::DWORD,
+								assembly::assembly_memory(
+									machine::register_t{machine::register_id::ebp},
+									-static_cast<int32_t>(var.offset)
+								)
+							})
+						));
+						break;
+					}
+				}
+			}
+			else {
+				// complex expression, address is already in target_reg
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::CALL,
+					assembly::assembly_operand({target_reg.id, machine::register_access::dword})
+				));
+			}
+			// the return value is stored on the stack starting at the position of the first parameter (the one that was pushed last)
+			// that just means it's at [esp]
+			// move it to target_reg
+			// if the return size is 0 (void), do nothing
+			if (ret_size > 0 && store_value) {
+				machine::data_size_t ret_data_size =
+					ret_size == 1
+					? machine::data_size_t::BYTE
+					: ret_size == 2
+					? machine::data_size_t::WORD
+					: machine::data_size_t::DWORD;
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::MOV,
+					assembly::assembly_result(target_reg),
+					assembly::assembly_operand({
+						ret_data_size,
+						assembly::assembly_memory(
+							machine::register_id::esp
+						)
+					})
+				));
+			}
+			// clean up the stack
+			if (param_stack_size > 0 || ret_size > param_stack_size) {
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::ADD,
+					assembly::assembly_result({machine::register_id::esp, machine::register_access::dword}),
+					assembly::assembly_operand(std::max(param_stack_size, ret_size))
+				));
+			}
+			// restore param_reg if needed
+			if (param_reg_used) {
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::POP,
+					assembly::assembly_operand({param_reg, machine::register_access::dword})
+				));
+			}
+			return;
+		}
 		if (dest_type.kind == analysis::types::type_node::kind_t::POINTER) {
 			auto pointer_type = std::get<analysis::types::pointer_type>(dest_type.value);
 			auto pointee_type = context.global_context->type_system->resolved_type(*pointer_type.pointee_type);
@@ -1263,9 +1705,7 @@ namespace unqlang::compiler {
 							throw std::runtime_error("The dereferenced type should be a primitive type");
 						}
 						auto pointee_prim_type = std::get<analysis::types::primitive_type>(pointee_type.value);
-						compile_pointer_expression(
-							*unary.operand, context, program, current_scope, target_reg.id, used_regs, pointee_type
-						);
+						compile_primitive_expression(*unary.operand, context, program, current_scope, target_reg, used_regs);
 						// now target_reg contains the address, load the value from that address
 						program.push_back(assembly::assembly_instruction(
 							machine::operation::MOV,
@@ -1455,8 +1895,8 @@ namespace unqlang::compiler {
 						binary.op == analysis::expressions::binary_expression::operator_t::NEQ)) {
 					// this ignores the actual pointer types and just compares the addresses
 					// get the value of the left pointer into target_reg
-					compile_pointer_expression(
-						left, context, program, current_scope, target_reg.id, used_regs, left_type
+					compile_primitive_expression(
+						left, context, program, current_scope, target_reg.id, used_regs
 					);
 					// get the value of the right pointer into a different register
 					// find a free register or use ebx (order to check: ebx, ecx, eax, edx)
@@ -1475,8 +1915,8 @@ namespace unqlang::compiler {
 							assembly::assembly_operand{right_reg_id}
 						));
 					}
-					compile_pointer_expression(
-						right, context, program, current_scope, right_reg_id, used_regs, right_type
+					compile_primitive_expression(
+						right, context, program, current_scope, right_reg_id, used_regs
 					);
 					// now perform the operation
 					if (binary.op == analysis::expressions::binary_expression::operator_t::SUB) {
@@ -1594,7 +2034,7 @@ namespace unqlang::compiler {
 						throw std::logic_error("Unknown primitive type");
 					}();
 					// get the base address into target_reg
-					compile_pointer_expression(left, context, program, current_scope, target_reg, used_regs, left_type);
+					compile_primitive_expression(left, context, program, current_scope, target_reg, used_regs);
 					if (right.kind == analysis::expressions::expression_node::kind_t::LITERAL) {
 						// if the index is a literal, we can do this more efficiently
 						const auto& lit = std::get<analysis::expressions::literal_expression>(right.value);
@@ -1878,14 +2318,15 @@ namespace unqlang::compiler {
 							used_regs
 						);
 						// load the assigned value into target_reg
-						program.push_back(assembly::assembly_instruction(
-							machine::operation::MOV,
-							assembly::assembly_result(target),
-							assembly::assembly_operand({
-								analysis::types::to_data_size(prim_type),
-								ref
-							})
-						));
+						if (store_value)
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::MOV,
+								assembly::assembly_result(target),
+								assembly::assembly_operand({
+									analysis::types::to_data_size(prim_type),
+									ref
+								})
+							));
 						// restore saved registers
 						for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
 							program.emplace_back(assembly::assembly_instruction(
