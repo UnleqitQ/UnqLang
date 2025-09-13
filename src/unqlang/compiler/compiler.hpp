@@ -260,9 +260,24 @@ namespace unqlang::compiler {
 	);
 
 	class Compiler {
+		struct built_in_function {
+			analysis::functions::function_info info;
+			assembly::assembly_program_t implementation;
+
+			built_in_function() : info(), implementation() {
+			}
+			built_in_function(
+				analysis::functions::function_info i,
+				assembly::assembly_program_t impl
+			)
+				: info(std::move(i)), implementation(std::move(impl)) {
+			}
+		};
 		std::shared_ptr<analysis::types::type_system> m_type_system;
 		std::shared_ptr<analysis::functions::storage> m_function_storage;
 		std::shared_ptr<analysis::variables::storage> m_variable_storage;
+		std::unordered_map<std::string, built_in_function> m_built_in_functions;
+		std::unordered_map<std::string, assembly::assembly_program_t> m_compiled_functions;
 
 	public:
 		Compiler()
@@ -290,11 +305,17 @@ namespace unqlang::compiler {
 			assembly::assembly_program_t& out_program
 		);
 
+		void register_built_in_function(
+			const analysis::functions::function_info& func_info,
+			const assembly::assembly_program_t& program
+		);
+
 		analysis::types::type_system& get_type_system() {
 			return *m_type_system;
 		}
 		const analysis::types::type_system& get_type_system() const {
 			return *m_type_system;
 		}
+		voi
 	};
 } // unqlang::compiler

@@ -3105,4 +3105,24 @@ namespace unqlang::compiler {
 			));
 		}
 	}
+	void Compiler::register_built_in_function(
+		const analysis::functions::function_info& func_info,
+		const assembly::assembly_program_t& program
+	) {
+		assembly::assembly_program_t func_program;
+		func_program.reserve(program.size()+1);
+		func_program.push_back(generate_function_label(func_info.name));
+		func_program.insert(func_program.end(), program.begin(), program.end());
+		// store the function
+		m_built_in_functions.emplace(
+			func_info.name,
+			built_in_function{func_info, func_program}
+		);
+		m_function_storage->declare_function(
+			func_info.name,
+			func_info.return_type,
+			func_info.parameter_types,
+			true
+		);
+	}
 } // unqlang::compiler
