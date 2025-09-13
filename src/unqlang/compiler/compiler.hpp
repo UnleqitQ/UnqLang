@@ -268,7 +268,9 @@ namespace unqlang::compiler {
 		Compiler()
 			: m_type_system(std::make_shared<analysis::types::type_system>()),
 			  m_function_storage(std::make_shared<analysis::functions::storage>()),
-			  m_variable_storage(std::make_shared<analysis::variables::storage>()) {
+			  m_variable_storage(
+				  std::make_shared<analysis::variables::storage>(analysis::variables::storage::storage_type_t::Global)
+			  ) {
 		}
 
 		void analyze_program(const ast_program& program);
@@ -276,6 +278,17 @@ namespace unqlang::compiler {
 		std::shared_ptr<scope> build_function_scope(const ast_statement_function_declaration& func_decl);
 		std::shared_ptr<assembly_scope> build_function_assembly_scope(
 			const std::shared_ptr<scope>& func_scope);
+		void compile_function(
+			const ast_statement_function_declaration& func_decl,
+			assembly::assembly_program_t& out_program
+		);
+		void compile_function(
+			const std::string& func_name,
+			const std::shared_ptr<assembly_function_signature>& func_sig,
+			const std::shared_ptr<assembly_scope>& func_scope,
+			const analysis::statements::block_statement& func_body,
+			assembly::assembly_program_t& out_program
+		);
 
 		analysis::types::type_system& get_type_system() {
 			return *m_type_system;

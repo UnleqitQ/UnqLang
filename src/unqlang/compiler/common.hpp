@@ -153,10 +153,27 @@ namespace unqlang::compiler {
 
 		scoped_compilation_context(
 			const std::shared_ptr<compilation_context>& global_ctx,
+			const std::shared_ptr<analysis::variables::storage>& var_storage,
+			const std::shared_ptr<assembly_function_signature>& func_sig,
 			const scoped_compilation_context* parent_ctx = nullptr)
 			: global_context(global_ctx),
 			  parent_context(parent_ctx),
-			  variable_storage(std::make_shared<analysis::variables::storage>()) {
+			  variable_storage(var_storage),
+			  current_function_signature(func_sig) {
+			if (!global_context) {
+				throw std::runtime_error("Global context cannot be null");
+			}
+		}
+
+		scoped_compilation_context(
+			const std::shared_ptr<compilation_context>& global_ctx,
+			const std::shared_ptr<analysis::variables::storage>& var_storage = nullptr,
+			const scoped_compilation_context* parent_ctx = nullptr)
+			: global_context(global_ctx),
+			  parent_context(parent_ctx),
+			  variable_storage(var_storage ? var_storage
+			                  : std::make_shared<analysis::variables::storage>()),
+			  current_function_signature(parent_ctx ? parent_ctx->current_function_signature : nullptr) {
 			if (!global_context) {
 				throw std::runtime_error("Global context cannot be null");
 			}

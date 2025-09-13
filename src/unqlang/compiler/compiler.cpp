@@ -2482,13 +2482,13 @@ namespace unqlang::compiler {
 		switch (decl.kind) {
 			case analysis::statements::declaration_statement::kind_t::VARIABLE: {
 				const auto& var_decl = std::get<analysis::statements::declaration_variable_statement>(decl.declaration);
-				program.emplace_back(assembly::assembly_instruction{
+				/*program.emplace_back(assembly::assembly_instruction{
 					machine::operation::SUB,
 					assembly::assembly_result{machine::register_id::esp},
 					assembly::assembly_operand{
 						static_cast<int32_t>(context.global_context->type_system->get_type_size(var_decl.type))
 					}
-				});
+				});*/
 				context.variable_storage->declare_variable(
 					var_decl.name,
 					var_decl.type,
@@ -2553,8 +2553,6 @@ namespace unqlang::compiler {
 				: label_prefix + std::to_string(statement_index) + "_if_clause_" + std::to_string(i + 1);
 			const auto& clause = if_stmt.clauses[i];
 			if (clause.condition.has_value()) {
-				if (!is_last_clause)
-					throw std::runtime_error("If clause is empty");
 				// compile the condition
 				compile_primitive_expression(
 					*clause.condition, context, program, current_scope,
@@ -2571,6 +2569,10 @@ namespace unqlang::compiler {
 					machine::operation::JZ,
 					assembly::assembly_operand{next_label}
 				));
+			}
+			else if (!is_last_clause) {
+				// else clause must be the last one
+				throw std::runtime_error("Else clause must be the last clause in an if statement");
 			}
 			// compile the body
 			// first create a new scope
@@ -2994,5 +2996,113 @@ namespace unqlang::compiler {
 		compilation_context context;
 		context.type_system = m_type_system;
 		return func_scope->build_assembly_scope(context, nullptr, 0);
+	}
+	void Compiler::compile_function(const ast_statement_function_declaration& func_decl,
+		assembly::assembly_program_t& out_program) {
+		if (func_decl.body == nullptr) {
+			throw std::runtime_error("Function has no body");
+		}
+		const auto& name = func_decl.name;
+		// we need to get the function signature, function scope and convert the function body
+		auto func_scope = build_function_scope(func_decl);
+		auto asm_func_scope = build_function_assembly_scope(func_scope);
+		// build the function signature
+		function_signature func_sig;
+		func_sig.return_type = analysis::types::type_system::from_ast(*func_decl.return_type);
+		func_sig.parameters.reserve(func_decl.parameters.size());
+		for (size_t i = 0; i < func_decl.parameters.size(); ++i) {
+			const auto& param = func_decl.parameters[i];
+			func_sig.parameters.emplace_back(
+				param.first,
+				analysis::types::type_system::from_ast(*param.second),
+				i
+			);
+		}
+		auto asm_func_sig = func_sig.build_assembly_signature(*m_type_system);
+		// compile the function
+		compile_function(
+			name,
+			asm_func_sig,
+			asm_func_scope,
+			analysis::statements::block_statement::from_ast(*func_decl.body),
+			out_program
+		);
+	}
+	void Compiler::compile_function(
+		const std::string& func_name,
+		const std::shared_ptr<assembly_function_signature>& func_sig,
+		const std::shared_ptr<assembly_scope>& func_scope,
+		const analysis::statements::block_statement& func_body,
+		assembly::assembly_program_t& out_program
+	) {
+		if (func_sig == nullptr || func_scope == nullptr) {
+			throw std::runtime_error("Function signature or scope is null");
+		}
+		// create the initial used registers mask
+		regmask used_regs;
+		used_regs.set(machine::register_id::ebp, true);
+		used_regs.set(machine::register_id::esp, true);
+		// create the initial compilation context
+		auto variable_storage = std::make_shared<analysis::variables::storage>(
+			analysis::variables::storage::storage_type_t::Function,
+			this->m_variable_storage
+		);
+		for (const auto& param : func_sig->parameters) {
+			if (param.name.has_value())
+				variable_storage->declare_variable(
+					*param.name,
+					param.type,
+					true
+				);
+		}
+		scoped_compilation_context context{
+			std::make_shared<compilation_context>(
+				this->m_type_system,
+				this->m_function_storage,
+				this->m_variable_storage
+			),
+			variable_storage,
+			func_sig
+		};
+		// function label
+		out_program.emplace_back(generate_function_label(func_name));
+		// function prologue
+		out_program.push_back(assembly::assembly_instruction(
+			machine::operation::PUSH,
+			assembly::assembly_operand{machine::register_id::ebp}
+		));
+		out_program.push_back(assembly::assembly_instruction(
+			machine::operation::MOV,
+			assembly::assembly_result{machine::register_id::ebp},
+			assembly::assembly_operand{machine::register_id::esp}
+		));
+		if (func_scope->cumulative_stack_size > 0) {
+			out_program.push_back(assembly::assembly_instruction(
+				machine::operation::SUB,
+				assembly::assembly_result{machine::register_id::esp},
+				assembly::assembly_operand{static_cast<int32_t>(func_scope->cumulative_stack_size)}
+			));
+		}
+		// compile the function body
+		std::string label_prefix = "func_" + func_name;
+		compile_block_statement(
+			func_body, context, out_program, *func_scope, used_regs,
+			label_prefix + "_"
+		);
+		// function epilogue (if not already returned)
+		if (!func_scope->all_paths_return) {
+			out_program.push_back(assembly::assembly_instruction(
+				machine::operation::MOV,
+				assembly::assembly_result{machine::register_id::esp},
+				assembly::assembly_operand{machine::register_id::ebp}
+			));
+			out_program.push_back(assembly::assembly_instruction(
+				machine::operation::POP,
+				assembly::assembly_result{machine::register_id::ebp}
+			));
+			out_program.push_back(assembly::assembly_instruction(
+				machine::operation::RET
+			));
+		}
 	}
 } // unqlang::compiler

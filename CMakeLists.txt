@@ -8,6 +8,7 @@ add_library(UnqLangLib
 	src/unqlang/analysis/functions.cpp
 	src/unqlang/analysis/types.cpp
 	src/unqlang/analysis/variables.cpp
+	src/unqlang/analysis/statements.cpp
 	src/unqlang/ast_helpers.cpp
 	src/unqlang/ast_interpreter.cpp
 	src/unqlang/ast.cpp
