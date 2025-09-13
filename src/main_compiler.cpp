@@ -141,7 +141,7 @@ int main(int n, int d, int e) {
 	return 0;
 }
 )";
-	/*unqlang::ast_program program;
+	unqlang::ast_program program;
 	try {
 		build_ast(source_code, program);
 	}
@@ -156,141 +156,25 @@ int main(int n, int d, int e) {
 
 	unqlang::compiler::Compiler compilr;
 	compilr.analyze_program(program);
-	auto func_scope = compilr.
+	/*auto func_scope = compilr.
 		build_function_scope(std::get<unqlang::ast_statement_function_declaration>(program.body[0]));
 	print_scope(*func_scope);
 	std::cout << std::string(80, '=') << std::endl << std::endl;
 	auto asm_scope = compilr.build_function_assembly_scope(func_scope);
 	print_asm_scope(*asm_scope);*/
-	std::shared_ptr<unqlang::compiler::compilation_context> global_context =
-		std::make_shared<unqlang::compiler::compilation_context>();
-	namespace types = unqlang::analysis::types;
-	global_context->function_storage->declare_function(
-		"puti",
-		types::primitive_type::INT,
-		{types::primitive_type::CHAR},
-		true
-	);
-	unqlang::compiler::scoped_compilation_context context{global_context};
-	context.variable_storage = std::make_shared<unqlang::analysis::variables::storage>(
-		unqlang::analysis::variables::storage::storage_type_t::Block
-	);
-	types::type_node type_a = types::pointer_of(
-		types::struct_of({
-			{"field1", types::primitive_type::INT},
-			{"field2", types::primitive_type::BOOL},
-			{"field3", types::pointer_of(types::primitive_type::UINT)}
-		})
-	);
-	types::type_node type_b = types::pointer_of(types::primitive_type::INT);
-	types::type_node type_c = types::primitive_type::INT;
-	context.variable_storage->declare_variable(
-		"a",
-		type_a,
-		true
-	);
-	context.variable_storage->declare_variable(
-		"b",
-		type_b,
-		true
-	);
-	context.variable_storage->declare_variable(
-		"c",
-		type_c,
-		true
-	);
-	std::cout << "Types:\n";
-	std::cout << std::format("a: {}\n", context.variable_storage->variables.at("a").type);
-	std::cout << std::format("b: {}\n", context.variable_storage->variables.at("b").type);
-	std::cout << std::format("c: {}\n", context.variable_storage->variables.at("c").type);
-
-	namespace expressions = unqlang::analysis::expressions;
-	expressions::expression_node test_expression0 =
-		expressions::make_binary(
-			expressions::binary_expression::operator_t::ADD,
-			expressions::make_unary(
-				expressions::unary_expression::operator_t::DEREFERENCE,
-				expressions::make_identifier("b")
-			),
-			expressions::make_binary(
-				expressions::binary_expression::operator_t::MUL,
-				expressions::make_member(
-					expressions::make_identifier("a"),
-					"field1",
-					true
-				),
-				expressions::make_binary(
-					expressions::binary_expression::operator_t::SUB,
-					expressions::make_identifier("c"),
-					expressions::make_binary(
-						expressions::binary_expression::operator_t::ARRAY_SUBSCRIPT,
-						expressions::make_identifier("b"),
-						expressions::make_unary(
-							expressions::unary_expression::operator_t::DEREFERENCE,
-							expressions::make_member(
-								expressions::make_identifier("a"),
-								"field3",
-								true
-							)
-						)
-					)
-				)
-			)
-		);
-	expressions::expression_node test_expression =
-		expressions::make_call(
-			expressions::make_identifier("puti"),
-			{test_expression0}
-		);
-	std::cout << std::format("Test expression: {}\n", test_expression);
-	unqlang::compiler::scope current_scope;
-	current_scope.symbol_table.emplace("a",
-		unqlang::compiler::scope::variable_scope_info{
-			{
-				"a",
-				context.variable_storage->variables.at("a").type
-			},
-			1
-		});
-	current_scope.symbol_table.emplace("b",
-		unqlang::compiler::scope::variable_scope_info{
-			{
-				"b",
-				context.variable_storage->variables.at("b").type
-			},
-			2
-		});
-	current_scope.symbol_table.emplace("c",
-		unqlang::compiler::scope::variable_scope_info{
-			{
-				"c",
-				context.variable_storage->variables.at("c").type
-			},
-			2
-		});
-	current_scope.symbols_by_statement.emplace(1, std::vector<std::string>{"a"});
-	current_scope.symbols_by_statement.emplace(2, std::vector<std::string>{"b", "c"});
-	std::shared_ptr<unqlang::compiler::assembly_scope> asm_scope =
-		current_scope.build_assembly_scope(*global_context, nullptr, 0);
-	assembly::assembly_program_t program;
+	unqlang::ast_statement_function_declaration multi_fib_decl =
+		std::get<unqlang::ast_statement_function_declaration>(program.body[0]);
+	assembly::assembly_program_t asm_program;
 	try {
-		unqlang::compiler::compile_primitive_expression(
-			test_expression,
-			context,
-			program,
-			*asm_scope,
-			machine::register_t{machine::register_id::eax},
-			{},
-			false
-		);
+		compilr.compile_function(multi_fib_decl, asm_program);
 	}
 	catch (const std::exception& e) {
-		std::cerr << "Error compiling expression: " << e.what() << std::endl;
+		std::cerr << "Error compiling function: " << e.what() << std::endl;
 		return 1;
 	}
-	std::cout << "Generated assembly instructions:\n";
-	for (const auto& instr : program) {
-		std::cout << instr << "\n";
+	std::cout << "Assembly program after compiling multi_fibonacci:" << std::endl;
+	for (const auto& instr : asm_program) {
+		std::cout << instr << std::endl;
 	}
 	return 0;
 }
