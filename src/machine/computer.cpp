@@ -610,7 +610,7 @@ namespace machine {
 				throw std::runtime_error("Invalid result type");
 		}
 	}
-	void computer::execute_instruction(const instruction_t& instr, uint32_t next_ip) {
+	bool computer::execute_instruction(const instruction_t& instr, uint32_t next_ip) {
 		bool jump_occurred = false;
 		switch (instr.op) {
 			case operation::NOP:
@@ -1023,8 +1023,9 @@ namespace machine {
 		if (!jump_occurred) {
 			m_registers.eip = next_ip;
 		}
-		if (m_verbose)
-			std::cout << std::endl;
+		/*if (m_verbose)
+			std::cout << std::endl;*/
+		return jump_occurred;
 	}
 
 	void print_registers(const register_file& regs) {
@@ -1077,14 +1078,22 @@ namespace machine {
 
 		uint32_t next_ip = m_registers.eip;
 		auto instr = fetch_current_instruction(next_ip);
-		if (m_verbose) {
+		uint32_t address = m_registers.eip;
+		/*if (m_verbose) {
 			print_registers(m_registers);
 			std::cout << std::endl;
 			std::cout << "Executing: " << instr << " at address " << std::format("0x{:08X}", m_registers.eip) << std::endl;
-		}
+		}*/
 
 		try {
-			execute_instruction(instr, next_ip);
+			bool jumped = execute_instruction(instr, next_ip);
+			if (m_verbose) {
+				std::cout << "Executing: " << instr << std::format("\t\t(EAX={}, EBX={}, ECX={}, EDX={}, EIP=0x{:04X})",
+					m_registers.eax, m_registers.ebx, m_registers.ecx, m_registers.edx, address) << std::endl;
+				if (jumped) {
+					std::cout << std::format("Jumped to address 0x{:04X}\n", m_registers.eip) << std::endl;
+				}
+			}
 		}
 		catch (const std::exception& e) {
 			m_state = execution_state_t::ERROR;
@@ -1105,5 +1114,8 @@ namespace machine {
 				step();
 			}
 		}
+	}
+	void computer::set_verbose(bool v) {
+		m_verbose = v;
 	}
 } // machine

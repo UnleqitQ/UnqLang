@@ -35,9 +35,7 @@ namespace machine {
 		void step(); // Execute a single instruction
 		void run(int max_steps = -1); // Run until the end of the program or max_steps reached
 
-		void set_verbose(bool v) {
-			m_verbose = v;
-		}
+		void set_verbose(bool v);
 		bool is_verbose() const {
 			return m_verbose;
 		}
@@ -97,6 +95,6 @@ namespace machine {
 		uint32_t retrieve_operand_value(const operand_arg& op) const;
 		uint32_t retrieve_result_value(const result_arg& res) const;
 		void set_result_value(const result_arg& res, uint32_t value);
-		void execute_instruction(const instruction_t& instr, uint32_t next_ip);
+		bool execute_instruction(const instruction_t& instr, uint32_t next_ip);
 	};
 } // machine
