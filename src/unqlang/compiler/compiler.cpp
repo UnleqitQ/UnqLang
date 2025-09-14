@@ -3913,37 +3913,35 @@ namespace unqlang::compiler {
 		std::string end_label = label_prefix + std::to_string(statement_index) + "_while_end";
 		program.emplace_back(start_label);
 		// compile the condition
-		auto cond_reg = find_free_register(
-			used_regs,
-			{
-				machine::register_id::eax, machine::register_id::ebx, machine::register_id::ecx,
-				machine::register_id::edx
+		std::string body_label = label_prefix + std::to_string(statement_index) + "_while_body";
+		auto condition = while_stmt.condition;
+		assembly::assembly_program_t cond_program;
+		auto info = compile_conditional_jump(
+			condition, true, end_label, body_label,
+			false, context, cond_program, current_scope, used_regs, modified_regs, statement_index,
+			label_prefix + "_w" + std::to_string(statement_index) + "_"
+		);
+		if (info.constant_condition) {
+			// while condition is constant
+			if (info.side_effects) {
+				// while condition is always true, but we need to keep the condition code
+				program.insert(program.end(), cond_program.begin(), cond_program.end());
 			}
-		);
-		modified_regs.set(cond_reg, true);
-		bool cond_was_used = used_regs.get(cond_reg);
-		if (cond_was_used) {
-			program.push_back(assembly::assembly_instruction(
-				machine::operation::PUSH,
-				assembly::assembly_operand{cond_reg}
-			));
+			if (info.jump_always) {
+				// while condition is always false, skip the body
+				program.emplace_back(end_label);
+				return;
+			}
+			// while condition is always true
 		}
-		used_regs.set(cond_reg, false);
-		compile_primitive_expression(
-			while_stmt.condition, context, program, current_scope,
-			{cond_reg, machine::register_access::dword}, used_regs, modified_regs,
-			statement_index, true
-		);
-		// test the condition
-		program.push_back(assembly::assembly_instruction(
-			machine::operation::TEST,
-			assembly::assembly_operand{cond_reg},
-			assembly::assembly_operand{cond_reg}
-		));
-		program.push_back(assembly::assembly_instruction(
-			machine::operation::JZ,
-			assembly::assembly_operand{end_label}
-		));
+		else {
+			// while condition is not constant, we need to keep the condition code
+			program.insert(program.end(), cond_program.begin(), cond_program.end());
+		}
+		if (info.skip_jump) {
+			// we need to add the body label
+			program.emplace_back(body_label);
+		}
 		// compile the body
 		// first create a new scope
 		const child_scope_key child_scope_key{statement_index, 0};
@@ -3967,13 +3965,6 @@ namespace unqlang::compiler {
 		));
 		// end label
 		program.emplace_back(end_label);
-		// restore condition register if needed
-		if (cond_was_used) {
-			program.push_back(assembly::assembly_instruction(
-				machine::operation::POP,
-				assembly::assembly_result{cond_reg}
-			));
-		}
 	}
 	void compile_return_statement(
 		const analysis::statements::return_statement& return_stmt,
