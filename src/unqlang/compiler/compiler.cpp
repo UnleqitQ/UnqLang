@@ -2926,6 +2926,10 @@ namespace unqlang::compiler {
 				}
 				auto return_type = analysis::types::type_system::from_ast(*func_decl.return_type);
 				m_function_storage->declare_function(name, return_type, param_types, func_decl.body != nullptr);
+				if (func_decl.body != nullptr) {
+					// add the function to the function list for later compilation
+					m_function_declarations.push_back(func_decl);
+				}
 			}
 			else if (std::holds_alternative<ast_statement_type_declaration>(comp)) {
 				const auto& type_decl = std::get<ast_statement_type_declaration>(comp);
@@ -2979,6 +2983,16 @@ namespace unqlang::compiler {
 			else {
 				throw std::runtime_error("Unknown top-level AST component");
 			}
+		}
+	}
+	void Compiler::precompile_functions() {
+		for (const auto& func_decl : m_function_declarations) {
+			if (m_compiled_functions.contains(func_decl.name))
+				// already compiled
+				continue;
+			assembly::assembly_program_t func_program;
+			compile_function(func_decl, func_program);
+			m_compiled_functions[func_decl.name] = std::move(func_program);
 		}
 	}
 	std::shared_ptr<scope> Compiler::build_function_scope(const ast_statement_function_declaration& func_decl) {
@@ -3043,18 +3057,22 @@ namespace unqlang::compiler {
 		used_regs.set(machine::register_id::ebp, true);
 		used_regs.set(machine::register_id::esp, true);
 		// create the initial compilation context
-		auto variable_storage = std::make_shared<analysis::variables::storage>(
+		auto function_variable_storage = std::make_shared<analysis::variables::storage>(
 			analysis::variables::storage::storage_type_t::Function,
 			this->m_variable_storage
 		);
 		for (const auto& param : func_sig->parameters) {
 			if (param.name.has_value())
-				variable_storage->declare_variable(
+				function_variable_storage->declare_variable(
 					*param.name,
 					param.type,
 					true
 				);
 		}
+		auto variable_storage = std::make_shared<analysis::variables::storage>(
+			analysis::variables::storage::storage_type_t::Block,
+			function_variable_storage
+		);
 		scoped_compilation_context context{
 			std::make_shared<compilation_context>(
 				this->m_type_system,
@@ -3110,7 +3128,7 @@ namespace unqlang::compiler {
 		const assembly::assembly_program_t& program
 	) {
 		assembly::assembly_program_t func_program;
-		func_program.reserve(program.size()+1);
+		func_program.reserve(program.size() + 1);
 		func_program.push_back(generate_function_label(func_info.name));
 		func_program.insert(func_program.end(), program.begin(), program.end());
 		// store the function
@@ -3124,5 +3142,71 @@ namespace unqlang::compiler {
 			func_info.parameter_types,
 			true
 		);
+	}
+	void Compiler::compile_entry(const std::string& entry_function, assembly::assembly_program_t& out_program) {
+		if (!m_function_storage->is_function_declared(entry_function)) {
+			throw std::runtime_error("Entry function '" + entry_function + "' is not declared");
+		}
+		const auto& func_info = m_function_storage->get_function(entry_function);
+		if (!func_info.is_defined) {
+			throw std::runtime_error("Entry function '" + entry_function + "' is not defined");
+		}
+		if (func_info.parameter_types.size() != 0) {
+			throw std::runtime_error("Entry function '" + entry_function + "' must have no parameters");
+		}
+		if (func_info.return_type.kind != analysis::types::type_node::kind_t::PRIMITIVE) {
+			throw std::runtime_error("Entry function '" + entry_function + "' must have primitive return type");
+		}
+		auto prim_type = std::get<analysis::types::primitive_type>(func_info.return_type.value);
+		if (prim_type != analysis::types::primitive_type::VOID &&
+			prim_type != analysis::types::primitive_type::INT) {
+			throw std::runtime_error("Entry function '" + entry_function + "' must have void or int return type");
+		}
+		out_program.emplace_back("__global_entry");
+		if (prim_type == analysis::types::primitive_type::INT) {
+			// we need to return an int, so reserve space on the stack
+			out_program.push_back(assembly::assembly_instruction(
+				machine::operation::SUB,
+				assembly::assembly_result{machine::register_id::esp},
+				assembly::assembly_operand{4}
+			));
+		}
+		out_program.push_back(assembly::assembly_instruction(
+			machine::operation::CALL,
+			assembly::assembly_operand{generate_function_label(entry_function)}
+		));
+		if (prim_type != analysis::types::primitive_type::VOID) {
+			// move the return value from eax to the reserved space
+			out_program.push_back(assembly::assembly_instruction(
+				machine::operation::OUT,
+				assembly::assembly_operand{
+					assembly::assembly_memory_pointer{
+						machine::data_size_t::DWORD,
+						assembly::assembly_memory(machine::register_id::esp)
+					}
+				}
+			));
+			out_program.push_back(assembly::assembly_instruction(
+				machine::operation::ADD,
+				assembly::assembly_result{machine::register_id::esp},
+				assembly::assembly_operand{4}
+			));
+		}
+		out_program.push_back(assembly::assembly_instruction(
+			machine::operation::HLT
+		));
+		out_program.emplace_back("__global_exit");
+	}
+	assembly::assembly_program_t Compiler::compile(const std::string& entry_function) {
+		assembly::assembly_program_t program;
+		this->precompile_functions();
+		this->compile_entry(entry_function, program);
+		for (const auto& func : m_built_in_functions | std::views::values) {
+			program.insert(program.end(), func.implementation.begin(), func.implementation.end());
+		}
+		for (const auto& func_program : m_compiled_functions | std::views::values) {
+			program.insert(program.end(), func_program.begin(), func_program.end());
+		}
+		return program;
 	}
 } // unqlang::compiler

@@ -278,6 +278,7 @@ namespace unqlang::compiler {
 		std::shared_ptr<analysis::variables::storage> m_variable_storage;
 		std::unordered_map<std::string, built_in_function> m_built_in_functions;
 		std::unordered_map<std::string, assembly::assembly_program_t> m_compiled_functions;
+		std::vector<ast_statement_function_declaration> m_function_declarations;
 
 	public:
 		Compiler()
@@ -289,6 +290,8 @@ namespace unqlang::compiler {
 		}
 
 		void analyze_program(const ast_program& program);
+
+		void precompile_functions();
 
 		std::shared_ptr<scope> build_function_scope(const ast_statement_function_declaration& func_decl);
 		std::shared_ptr<assembly_scope> build_function_assembly_scope(
@@ -316,6 +319,12 @@ namespace unqlang::compiler {
 		const analysis::types::type_system& get_type_system() const {
 			return *m_type_system;
 		}
-		voi
+		void compile_entry(
+			const std::string& entry_function,
+			assembly::assembly_program_t& out_program
+		);
+		assembly::assembly_program_t compile(
+			const std::string& entry_function
+		);
 	};
 } // unqlang::compiler
