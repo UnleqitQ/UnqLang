@@ -97,19 +97,19 @@ namespace assembly {
 							return '\t';
 						case '\\':
 							return '\\';
-						case '\'':
-							return '\'';
+						case '"':
+							return '"';
 						default:
 							return c;
 					}
 				}, "escape_char");
 		const Parser<char, assembly_token> string_parser =
-			(symbol<char>('\'') >
+			(symbol<char>('"') >
 				*(
 					escape_char_parser ||
-					satisfy<char>([](char c) { return c != '\''; }, "not_quote")
+					satisfy<char>([](char c) { return c != '"'; }, "not_quote")
 				)
-				< symbol<char>('\''))
+				< symbol<char>('"'))
 			.map<assembly_token>([](const std::vector<char>& chars) {
 				return assembly_token{assembly_token::type::STRING, std::string(chars.begin(), chars.end())};
 			}, "to_token");
@@ -117,6 +117,14 @@ namespace assembly {
 			tokens<char>({"db"_t, "dw"_t, "dd"_t}, "meta")
 			.map<assembly_token>([](const std::vector<char>& text) {
 				return assembly_token{assembly_token::type::META, std::string(text.begin(), text.end())};
+			}, "to_token");
+
+		const Parser<char, assembly_token> char_literal_parser =
+			(symbol<char>('\'') >
+				(escape_char_parser || satisfy<char>([](char c) { return c != '\''; }, "not_quote"))
+				< symbol<char>('\''))
+			.map<assembly_token>([](const char& c) {
+				return assembly_token{assembly_token::type::NUMBER, std::to_string(static_cast<int32_t>(c))};
 			}, "to_token");
 		const Parser<char, assembly_token> decimal_number_parser =
 			(+satisfy<char>([](char c) { return c >= '0' && c <= '9'; }, "is_dec")).map<assembly_token>(
@@ -132,7 +140,8 @@ namespace assembly {
 			return assembly_token{assembly_token::type::NUMBER, text};
 		}, "to_token");
 		const Parser<char, assembly_token> number_parser =
-			hex_number_parser || decimal_number_parser;
+			hex_number_parser || decimal_number_parser || char_literal_parser;
+
 		const Parser<char, assembly_token> operator_parser =
 			symbols<char>({'+', '-', '*'}, "op").map<assembly_token>([](const char& c) {
 				return assembly_token{assembly_token::type::OPERATOR, std::string(1, c)};

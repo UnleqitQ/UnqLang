@@ -32,7 +32,7 @@ int main() {
 	std::string source_code = R"(
 jmp main
 text_hello:
-	db 'Hello, World!', 0xA, 0
+	db "Hello, World!", 0xA, 0
 
 print_text:
 	; Print a null-terminated string pointed to by EAX
@@ -55,19 +55,19 @@ print_done:
 factorial:
 	push ebp
 	mov ebp, esp
-	sub esp, 4                   ; Allocate space for local variable if needed
-	mov eax, dword ptr [ebp + 8] ; Get n (first argument)
+	sub esp, 4                     ; Allocate space for local variable if needed
+	mov eax, dword ptr [ebp + 8]   ; Get n (first argument)
 	cmp eax, 1
-	jle base_case                ; If n <= 1, return 1
-	dec eax                      ; n - 1
+	jle base_case                  ; If n <= 1, return 1
+	dec eax                        ; n - 1
 	push eax
 	call factorial
 	add esp, 4                     ; Clean up stack
 	mov ebx, dword ptr [ebp + 8]   ; Get n again
-	mul eax, ebx				 ; EAX = n * factorial(n - 1)
+	mul eax, ebx				           ; EAX = n * factorial(n - 1)
 	jmp end_factorial
 base_case:
-	mov eax, 1           ; Return 1
+	mov eax, 1                     ; Return 1
 end_factorial:
 	mov esp, ebp
 	pop ebp
@@ -111,7 +111,7 @@ string_loop:
 	cmp ecx, 0
 	jz string_done       ; If size is 0, we're done
 	mov bl, byte ptr [esi] ; Load digit
-	add bl, 0x30         ; Convert to ASCII
+	add bl, '0'         ; Convert to ASCII
 	mov byte ptr [edi], bl ; Store character
 	inc esi              ; Move to next BCD digit
 	inc edi              ; Move to next string position
