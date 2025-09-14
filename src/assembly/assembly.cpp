@@ -273,7 +273,8 @@ namespace assembly {
 			}
 			else if (comp.component_type == assembly_component::type::INSTRUCTION) {
 				if (byte_addressing) {
-					address += std::get<assembly_instruction>(comp.value).instruction_size();
+					const auto& inst = std::get<assembly_instruction>(comp.value);
+					address += inst.instruction_size();
 				}
 				else {
 					++address; // Each instruction is 1 address unit

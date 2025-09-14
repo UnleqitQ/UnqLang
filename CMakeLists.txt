@@ -8,9 +8,9 @@ set(CMAKE_CXX_STANDARD 23)
 add_library(UnqLangLib
 	src/unqlang/analysis/expressions.cpp
 	src/unqlang/analysis/functions.cpp
+	src/unqlang/analysis/statements.cpp
 	src/unqlang/analysis/types.cpp
 	src/unqlang/analysis/variables.cpp
-	src/unqlang/analysis/statements.cpp
 	src/unqlang/ast_helpers.cpp
 	src/unqlang/ast_interpreter.cpp
 	src/unqlang/ast.cpp
@@ -29,6 +29,7 @@ add_library(MiscMachineLib
 	src/machine/assembler.cpp
 	src/machine/computer_split.cpp
 	src/machine/computer.cpp
+	src/machine/instruction_helper.cpp
 )
 
 link_libraries(UnqLangCompilerLib UnqLangLib MiscMachineLib)
