@@ -363,6 +363,7 @@ namespace assembly {
 				size += std::get<args_t<0, true>>(args).result.instruction_size();
 			}
 			else if (std::holds_alternative<args_mr_t>(args)) {
+				size += 1; // 1 byte for args types
 				size += std::get<args_mr_t>(args).mem.instruction_size();
 				size += std::get<args_mr_t>(args).result.instruction_size();
 			}

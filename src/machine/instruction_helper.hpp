@@ -1,9 +1,5 @@
 #pragma once
 
-#ifndef MACHINE_INSTRUCTION
-#define MACHINE_INSTRUCTION
-#endif
-
 #include "instruction.hpp"
 
 namespace machine::instruction_helper {
@@ -20,7 +16,5 @@ namespace machine::instruction_helper {
 		static constexpr uint8_t TWO_OPERANDS = 2;
 		static constexpr uint8_t MEMORY_OPERAND = 3;
 	};
-	inline operands_type get_operands_type(const operation op);
+	operands_type get_operands_type(const operation op);
 } // namespace machine::instruction_helper
-
-#include "instruction_helper.inl"

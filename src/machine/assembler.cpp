@@ -191,10 +191,12 @@ namespace machine::assembler {
 			assemble_unsafe(instr, out);
 		}
 	}
-	void assemble(const machine::program_t& program, bytecode_t& out) {
+	void assemble(const machine::program_t& program, bytecode_t& out, uint32_t start_address) {
 		for (const auto& instr : program) {
 			if (std::holds_alternative<machine::instruction_t>(instr)) {
-				assemble(std::get<machine::instruction_t>(instr), out);
+				const auto& inst = std::get<machine::instruction_t>(instr);
+				// std::cout << "[" << (start_address + out.size()) << "]: " << inst << std::endl;
+				assemble(inst, out);
 			}
 			else if (std::holds_alternative<std::vector<uint8_t>>(instr)) {
 				const auto& data = std::get<std::vector<uint8_t>>(instr);

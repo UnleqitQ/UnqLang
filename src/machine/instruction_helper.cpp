@@ -1,10 +1,7 @@
-#pragma once
-#ifndef MACHINE_INSTRUCTION
-#error "Include machine/instruction.hpp instead of machine/instruction.inl"
-#endif
+#include "instruction_helper.hpp"
 
 namespace machine::instruction_helper {
-	inline operands_type get_operands_type(const operation op) {
+	operands_type get_operands_type(const operation op) {
 		switch (op) {
 			case operation::NOP:
 			case operation::RET:
@@ -17,6 +14,8 @@ namespace machine::instruction_helper {
 			case operation::HLT:
 				return {0, 0, 0}; // No operands, no result
 			case operation::MOV:
+			case operation::MOVSX:
+			case operation::MOVZX:
 			case operation::ADD:
 			case operation::SUB:
 			case operation::ADC:
@@ -49,6 +48,22 @@ namespace machine::instruction_helper {
 			case operation::NOT:
 			case operation::POP:
 			case operation::IN:
+			case operation::SETZ:
+			case operation::SETNZ:
+			case operation::SETO:
+			case operation::SETNO:
+			case operation::SETC:
+			case operation::SETNC:
+			case operation::SETS:
+			case operation::SETNS:
+			case operation::SETG:
+			case operation::SETGE:
+			case operation::SETL:
+			case operation::SETLE:
+			case operation::SETA:
+			case operation::SETAE:
+			case operation::SETB:
+			case operation::SETBE:
 				return {1, 0, 0}; // No operands, one result
 			case operation::PUSH:
 			case operation::JMP:
@@ -73,8 +88,8 @@ namespace machine::instruction_helper {
 			case operation::CALL:
 			case operation::OUT:
 				return {0, 1, 0}; // One operand, no result
-			default:
-				return {0, 0, 0}; // Unknown operation
 		}
+		std::cerr << "Warning: Unknown operation in get_operands_type: " << static_cast<uint8_t>(op) << "\n";
+		return {0, 0, 0}; // Default to no operands, no result
 	}
 } // namespace machine::instruction_helper

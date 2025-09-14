@@ -899,6 +899,7 @@ namespace machine {
 		if (!jump_occurred) {
 			m_registers.eip = next_ip;
 		}
+		std::cout << std::endl;
 	}
 
 	void print_registers(const register_file& regs) {
@@ -920,6 +921,26 @@ namespace machine {
 			regs.flags.af ? 1 : 0);
 	}
 
+	void computer::load_program(const simple_program_t& program, uint32_t start_address) {
+		if (program.size() + start_address > ram::SIZE) {
+			throw std::runtime_error("Program size exceeds RAM size");
+		}
+		assembler::bytecode_t bytecode;
+		assembler::assemble(program, bytecode);
+		std::ranges::copy(bytecode, m_ram.data.begin() + start_address);
+		m_registers.eip = start_address;
+		m_state = execution_state_t::RUNNING;
+	}
+	void computer::load_program(const program_t& program, uint32_t start_address) {
+		if (program.size() + start_address > ram::SIZE) {
+			throw std::runtime_error("Program size exceeds RAM size");
+		}
+		assembler::bytecode_t bytecode;
+		assembler::assemble(program, bytecode, start_address);
+		std::ranges::copy(bytecode, m_ram.data.begin() + start_address);
+		m_registers.eip = start_address;
+		m_state = execution_state_t::RUNNING;
+	}
 	void computer::step() {
 		if (m_state != execution_state_t::RUNNING) {
 			return;
