@@ -164,6 +164,10 @@ namespace unqlang::compiler {
 		}
 	};
 
+	bool contains_side_effects(
+		const analysis::expressions::expression_node& expr
+	);
+
 	/**
 	 * Compiles a conditional jump based on the evaluation of a condition expression.
 	 * @param condition The condition expression to evaluate.

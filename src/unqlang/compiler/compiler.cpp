@@ -2482,6 +2482,85 @@ namespace unqlang::compiler {
 		};
 	}
 
+	bool contains_side_effects(const analysis::expressions::expression_node& expr) {
+		switch (expr.kind) {
+			case analysis::expressions::expression_node::kind_t::LITERAL:
+			case analysis::expressions::expression_node::kind_t::IDENTIFIER:
+				return false;
+			case analysis::expressions::expression_node::kind_t::UNARY: {
+				const auto& unary = std::get<analysis::expressions::unary_expression>(expr.value);
+				if (unary.op == analysis::expressions::unary_expression::operator_t::PRE_INC ||
+					unary.op == analysis::expressions::unary_expression::operator_t::PRE_DEC ||
+					unary.op == analysis::expressions::unary_expression::operator_t::POST_INC ||
+					unary.op == analysis::expressions::unary_expression::operator_t::POST_DEC) {
+					return true;
+				}
+				return contains_side_effects(*unary.operand);
+			}
+			case analysis::expressions::expression_node::kind_t::BINARY: {
+				const auto& binary = std::get<analysis::expressions::binary_expression>(expr.value);
+				switch (binary.op) {
+					case analysis::expressions::binary_expression::operator_t::ASSIGN:
+						return true;
+					case analysis::expressions::binary_expression::operator_t::LAND: {
+						// if left is a literal false or !true, only check left for side effects
+						const auto& left = *binary.left;
+						if ((left.kind == analysis::expressions::expression_node::kind_t::LITERAL &&
+								!std::get<analysis::expressions::literal_expression>(left.value).get_truthiness()) ||
+							(left.kind == analysis::expressions::expression_node::kind_t::UNARY &&
+								std::get<analysis::expressions::unary_expression>(left.value).op ==
+								analysis::expressions::unary_expression::operator_t::LNOT &&
+								std::get<analysis::expressions::unary_expression>(left.value).operand->kind ==
+								analysis::expressions::expression_node::kind_t::LITERAL &&
+								std::get<analysis::expressions::literal_expression>(
+									std::get<analysis::expressions::unary_expression>(left.value).operand->value
+								).get_truthiness()
+							)) {
+							return contains_side_effects(*binary.left);
+						}
+						break;
+					}
+					case analysis::expressions::binary_expression::operator_t::LOR: {
+						// if left is a literal true or !false, only check left for side effects
+						const auto& left = *binary.left;
+						if ((left.kind == analysis::expressions::expression_node::kind_t::LITERAL &&
+								std::get<analysis::expressions::literal_expression>(left.value).get_truthiness()) ||
+							(left.kind == analysis::expressions::expression_node::kind_t::UNARY &&
+								std::get<analysis::expressions::unary_expression>(left.value).op ==
+								analysis::expressions::unary_expression::operator_t::LNOT &&
+								std::get<analysis::expressions::unary_expression>(left.value).operand->kind ==
+								analysis::expressions::expression_node::kind_t::LITERAL &&
+								!std::get<analysis::expressions::literal_expression>(
+									std::get<analysis::expressions::unary_expression>(left.value).operand->value
+								).get_truthiness()
+							)) {
+							return contains_side_effects(*binary.left);
+						}
+						break;
+					}
+					default:
+						break;
+				}
+				return contains_side_effects(*binary.left) || contains_side_effects(*binary.right);
+			}
+			case analysis::expressions::expression_node::kind_t::TERNARY: {
+				const auto& ternary = std::get<analysis::expressions::ternary_expression>(expr.value);
+				return contains_side_effects(*ternary.condition) ||
+					contains_side_effects(*ternary.then_branch) ||
+					contains_side_effects(*ternary.else_branch);
+			}
+			case analysis::expressions::expression_node::kind_t::MEMBER: {
+				const auto& member = std::get<analysis::expressions::member_expression>(expr.value);
+				return contains_side_effects(*member.object);
+			}
+			case analysis::expressions::expression_node::kind_t::CALL: {
+				// function calls are assumed to have side effects
+				return true;
+			}
+			default:
+				throw std::runtime_error("Unknown expression type");
+		}
+	}
 	conditional_jump_info compile_conditional_jump(
 		const analysis::expressions::expression_node& condition,
 		bool invert,
@@ -2573,6 +2652,7 @@ namespace unqlang::compiler {
 				if (!context.variable_storage->is_variable_declared(ident.name)) {
 					throw std::runtime_error("Variable not found: " + ident.name);
 				}
+
 				auto var_type = ident.get_type(
 					*context.variable_storage
 				);
@@ -2592,12 +2672,31 @@ namespace unqlang::compiler {
 					}
 					data_size = analysis::types::to_data_size(prim_type);
 				}
-				// get the memory reference of the variable
-				auto var_info = current_scope.get_variable(ident.name);
-				assembly::assembly_memory var_mem(
-					machine::register_t{machine::register_id::ebp},
-					-static_cast<int32_t>(var_info.offset)
-				);
+				assembly::assembly_memory var_mem{0};
+				// check the storage class of the variable
+				auto storage_type = context.variable_storage->get_declaring_scope(ident.name)->storage_type;
+				if (storage_type == analysis::variables::storage::storage_type_t::Global) {
+					throw std::runtime_error("Global variable not allowed");
+				}
+				if (storage_type == analysis::variables::storage::storage_type_t::Function) {
+					auto param_idx = context.current_function_signature->name_index_map.at(ident.name);
+					auto param_info = context.current_function_signature->parameters[param_idx];
+					var_mem = assembly::assembly_memory(
+						machine::register_t{machine::register_id::ebp},
+						static_cast<int32_t>(param_info.offset)
+					);
+				}
+				else if (storage_type == analysis::variables::storage::storage_type_t::Block) {
+					// get the memory reference of the variable
+					auto var_info = current_scope.get_variable(ident.name);
+					var_mem = assembly::assembly_memory(
+						machine::register_t{machine::register_id::ebp},
+						-static_cast<int32_t>(var_info.offset)
+					);
+				}
+				else {
+					throw std::runtime_error("Unknown variable storage type");
+				}
 				// test the variable
 				program.push_back(assembly::assembly_instruction(
 					machine::operation::TEST,
@@ -2947,15 +3046,15 @@ namespace unqlang::compiler {
 						 *   jump {right} target skip NOJUMP
 						 *   -> right info
 						 * left not constant:
-						 *   jump {left} NOJUMP skip NEXT (reset)
+						 *   jump {left} target skip NEXT (reset)
 						 *   NEXT:
 						 *   jump {right} target skip NOJUMP
-						 *   -> right info + skip + left side effects
+						 *   -> right info + left side effects
 						 */
 						assembly::assembly_program_t left_program;
 						std::string next_label = label_prefix + "_nxt";
 						auto left_jump_info = compile_conditional_jump(
-							left, false, no_jump_label, next_label,
+							left, false, target_label, next_label,
 							false, context, left_program, current_scope,
 							used_regs, modified_regs, statement_index,
 							label_prefix + "l"
@@ -2975,8 +3074,8 @@ namespace unqlang::compiler {
 							left_inserted ? label_prefix + "r" : label_prefix
 						);
 						right_jump_info.side_effects |= left_jump_info.side_effects;
-						right_jump_info.constant_condition &= left_jump_info.constant_condition;
-						right_jump_info.skip_jump |= !left_jump_info.constant_condition;
+						right_jump_info.constant_condition &= left_jump_info.constant_condition ||
+							right_jump_info.jump_always;
 						return right_jump_info;
 					}
 					case analysis::expressions::binary_expression::operator_t::SUB:
@@ -3622,7 +3721,8 @@ namespace unqlang::compiler {
 				assembly::assembly_result{cond_reg}
 			));
 		}
-		return conditional_jump_info().with_skip(needs_skip);
+		bool side_effects = contains_side_effects(condition);
+		return conditional_jump_info().with_skip(needs_skip).with_side_effects(side_effects);
 	}
 
 	void compile_block_statement(
@@ -3731,7 +3831,7 @@ namespace unqlang::compiler {
 					clause_program.emplace_back(body_label);
 				}
 				constant_condition = info.constant_condition;
-				constant_value = info.jump_always;
+				constant_value = !info.jump_always;
 				if (info.side_effects || !constant_condition) {
 					// if there are side effects, we need to keep the generated code
 					program.insert(program.end(), clause_program.begin(), clause_program.end());
