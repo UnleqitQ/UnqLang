@@ -1011,6 +1011,13 @@ namespace unqlang::compiler {
 			bool_reg, used_regs, modified_regs, statement_index
 		);
 		uint32_t size = assembly::program_size(temp_program);
+		// dummy instruction for size calculation
+		auto dummy = assembly::assembly_instruction(
+			machine::operation::LEA,
+			assembly::assembly_result({tmp_reg, machine::register_access::dword}),
+			assembly::assembly_memory(machine::register_id::eip, 0)
+		);
+		size += dummy.instruction_size();
 		// lea (eip + size) -> tmp_reg
 		program.push_back(assembly::assembly_instruction(
 			machine::operation::LEA,
