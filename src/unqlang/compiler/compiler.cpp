@@ -3543,8 +3543,8 @@ namespace unqlang::compiler {
 						return conditional_jump_info().with_skip(needs_skip).with_side_effects(true);
 					}
 					default:
-						// other binary operators are not allowed in conditions
-						throw std::runtime_error("Only logical and comparison operators can be used in conditions");
+						// other binary operators have no supported optimizations
+						break;
 				}
 			}
 			case analysis::expressions::expression_node::kind_t::TERNARY:
@@ -3705,23 +3705,7 @@ namespace unqlang::compiler {
 		uint32_t statement_index,
 		std::string label_prefix
 	) {
-		auto cond_reg = find_free_register(
-			used_regs,
-			{
-				machine::register_id::ebx, machine::register_id::eax,
-				machine::register_id::edx, machine::register_id::ecx,
-			}
-		);
-		modified_regs.set(cond_reg, true);
 		bool all_return = true;
-		bool cond_was_used = used_regs.get(cond_reg);
-		if (cond_was_used) {
-			program.push_back(assembly::assembly_instruction(
-				machine::operation::PUSH,
-				assembly::assembly_operand{cond_reg}
-			));
-		}
-		used_regs.set(cond_reg, false);
 		std::string end_label = label_prefix + std::to_string(statement_index) + "_if_end";
 		for (size_t i = 0; i < if_stmt.clauses.size(); ++i) {
 			bool is_last_clause = (i == if_stmt.clauses.size() - 1);
@@ -3729,69 +3713,74 @@ namespace unqlang::compiler {
 				? end_label
 				: label_prefix + std::to_string(statement_index) + "_if_clause_" + std::to_string(i + 1);
 			const auto& clause = if_stmt.clauses[i];
+			bool constant_condition = false;
+			bool constant_value = false;
 			if (clause.condition.has_value()) {
 				// compile the condition
-				compile_primitive_expression(
-					*clause.condition, context, program, current_scope,
-					{cond_reg, machine::register_access::dword}, used_regs, modified_regs,
-					statement_index, true
+				// if false jump to next clause
+				std::string body_label = label_prefix + std::to_string(statement_index) + "_if_clause_" + std::to_string(i) +
+					"_body";
+				assembly::assembly_program_t clause_program;
+				auto info = compile_conditional_jump(
+					*clause.condition, true, next_label, body_label,
+					false, context, clause_program, current_scope, used_regs, modified_regs, statement_index,
+					label_prefix + "_if" + std::to_string(statement_index) + "_c" + std::to_string(i) + "_"
 				);
-				// test the condition
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::TEST,
-					assembly::assembly_operand{cond_reg},
-					assembly::assembly_operand{cond_reg}
-				));
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::JZ,
-					assembly::assembly_operand{next_label}
-				));
+				if (info.skip_jump) {
+					// we need to add the body label
+					clause_program.emplace_back(body_label);
+				}
+				constant_condition = info.constant_condition;
+				constant_value = info.jump_always;
+				if (info.side_effects || !constant_condition) {
+					// if there are side effects, we need to keep the generated code
+					program.insert(program.end(), clause_program.begin(), clause_program.end());
+				}
 			}
 			else if (!is_last_clause) {
 				// else clause must be the last one
 				throw std::runtime_error("Else clause must be the last clause in an if statement");
 			}
-			// compile the body
-			// first create a new scope
-			const child_scope_key child_scope_key{statement_index, static_cast<uint32_t>(i)};
-			auto& child_scope = current_scope.children.at(child_scope_key);
-			auto variable_storage = std::make_shared<analysis::variables::storage>(
-				analysis::variables::storage::storage_type_t::Block,
-				context.variable_storage
-			);
-			scoped_compilation_context child_context{
-				&context,
-				variable_storage,
-			};
-			compile_block_statement(
-				clause.body, child_context, program, *child_scope.child,
-				used_regs, modified_regs,
-				label_prefix + "if" + std::to_string(statement_index) + "_c" + std::to_string(i) + "_"
-			);
-			bool clause_returns = child_scope.child->all_paths_return;
-			all_return &= clause_returns;
-			// jump to the end
-			if (!is_last_clause && !clause_returns) {
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::JMP,
-					assembly::assembly_operand{end_label}
-				));
+			if (!constant_condition || constant_value) {
+				// compile the body
+				// first create a new scope
+				const child_scope_key child_scope_key{statement_index, static_cast<uint32_t>(i)};
+				auto& child_scope = current_scope.children.at(child_scope_key);
+				auto variable_storage = std::make_shared<analysis::variables::storage>(
+					analysis::variables::storage::storage_type_t::Block,
+					context.variable_storage
+				);
+				scoped_compilation_context child_context{
+					&context,
+					variable_storage,
+				};
+				compile_block_statement(
+					clause.body, child_context, program, *child_scope.child,
+					used_regs, modified_regs,
+					label_prefix + "if" + std::to_string(statement_index) + "_c" + std::to_string(i) + "_"
+				);
+				bool clause_returns = child_scope.child->all_paths_return;
+				all_return &= clause_returns;
+				// jump to the end
+				if (!is_last_clause && !clause_returns) {
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::JMP,
+						assembly::assembly_operand{end_label}
+					));
+				}
 			}
 			// next clause label
 			if (!is_last_clause) {
 				program.emplace_back(next_label);
 			}
+			if (constant_condition && constant_value) {
+				// the condition is always true, no need to compile further clauses
+				break;
+			}
 		}
 		if (!all_return) {
 			// end label
 			program.emplace_back(end_label);
-		}
-		// restore condition register if needed
-		if (cond_was_used) {
-			program.push_back(assembly::assembly_instruction(
-				machine::operation::POP,
-				assembly::assembly_result{cond_reg}
-			));
 		}
 	}
 	void compile_while_statement(
