@@ -154,7 +154,7 @@ int main() {
 		return 1;
 	}
 
-	std::filesystem::path source_path = "../programs/factorial.unq";
+	std::filesystem::path source_path = "../programs/multi_fibonacci.unq";
 	std::string source_code;
 	try {
 		if (!std::filesystem::exists(source_path)) {
@@ -236,7 +236,7 @@ int main() {
 		std::cerr << "Error loading program into computer: " << e.what() << std::endl;
 		return 1;
 	}
-	computr.set_verbose(true);
+	computr.set_verbose(false);
 	try {
 		computr.run();
 	}
