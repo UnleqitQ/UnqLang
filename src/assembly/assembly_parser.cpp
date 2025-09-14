@@ -191,7 +191,7 @@ namespace assembly {
 				return assembly_token{assembly_token::type::UNKNOWN, std::string(1, c)};
 			}, "to_token");
 		const Parser<char, assembly_token> newline_parser =
-			(tokens<char>({"\r\n"_t, "\n"_t, "\r"_t}, "newline")).map<assembly_token>(
+			(tokens<char>({"\r\n"_t, "\n"_t, "\r"_t}, "newline", true)).map<assembly_token>(
 				[](const std::vector<char>& chars) {
 					return assembly_token{assembly_token::type::NEWLINE, std::string(chars.begin(), chars.end())};
 				}, "to_token");
