@@ -2482,6 +2482,1149 @@ namespace unqlang::compiler {
 		};
 	}
 
+	conditional_jump_info compile_conditional_jump(
+		const analysis::expressions::expression_node& condition,
+		bool invert,
+		const std::string& target_label,
+		const std::string& no_jump_label,
+		bool needs_skip,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		regmask& modified_regs,
+		uint32_t statement_index,
+		const std::string& label_prefix
+	) {
+		/*
+		 * This may get complicated sometimes, so there will be some comments with a conceptual pseudo-code
+		 * For that there is a special notation:
+		 * - "[x]" means the value of x (variable, expression, etc.)
+		 * - "{cond}" means the evaluation of condition cond (true or false)
+		 * - "jump {cond} LABEL skip LABEL2" means a conditional jump to LABEL if cond is true, skip to LABEL2 (recursive call of this function)
+		 * - "jump !{cond} LABEL skip LABEL2" means a conditional jump to LABEL if cond is false, skip to LABEL2 (recursive call of this function with invert=!invert)
+		 * - "jump {cond} LABEL skip LABEL2 (reset)" is like the above but resets the need to jump to LABEL2 (recursive call of this function with needs_skip=false)
+		 * - "jump {cond} LABEL else LABEL2" means a conditional jump to LABEL if cond is true, else jump to LABEL2 (always jumps to one of the two) (recursive call of this function with needs_skip=true)
+		 * - "jmp LABEL" means an unconditional jump to LABEL
+		 * - "jmp eval {cond} LABEL" means jump to LABEL depending on the evaluation of cond, this differs from the above, it compiles the condition as primitive and tests it
+		 * - "LABEL:" means a label definition
+		 */
+		switch (condition.kind) {
+			case analysis::expressions::expression_node::kind_t::LITERAL: {
+				const auto& lit = std::get<analysis::expressions::literal_expression>(condition.value);
+				if (lit.kind != analysis::expressions::literal_expression::kind_t::BOOL &&
+					lit.kind != analysis::expressions::literal_expression::kind_t::UINT &&
+					lit.kind != analysis::expressions::literal_expression::kind_t::INT &&
+					lit.kind != analysis::expressions::literal_expression::kind_t::CHAR &&
+					lit.kind != analysis::expressions::literal_expression::kind_t::ULONG &&
+					lit.kind != analysis::expressions::literal_expression::kind_t::LONG &&
+					lit.kind != analysis::expressions::literal_expression::kind_t::NULLPTR) {
+					throw std::runtime_error("Only boolean or integer literals can be used in conditions");
+				}
+				bool value = false;
+				switch (lit.kind) {
+					case analysis::expressions::literal_expression::kind_t::BOOL:
+						value = std::get<bool>(lit.value);
+						break;
+					case analysis::expressions::literal_expression::kind_t::CHAR:
+						value = std::get<char>(lit.value) != 0;
+						break;
+					case analysis::expressions::literal_expression::kind_t::INT:
+						value = std::get<int32_t>(lit.value) != 0;
+						break;
+					case analysis::expressions::literal_expression::kind_t::UINT:
+						value = std::get<uint32_t>(lit.value) != 0;
+						break;
+					case analysis::expressions::literal_expression::kind_t::LONG:
+						value = std::get<int64_t>(lit.value) != 0;
+						break;
+					case analysis::expressions::literal_expression::kind_t::ULONG:
+						value = std::get<uint64_t>(lit.value) != 0;
+						break;
+					case analysis::expressions::literal_expression::kind_t::NULLPTR:
+						value = false;
+						break;
+					default:
+						throw std::runtime_error("Unexpected literal type in condition");
+				}
+				if (invert)
+					value = !value;
+				if (value) {
+					// always jump
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::JMP,
+						assembly::assembly_operand(target_label)
+					));
+					return conditional_jump_info().as_constant(true);
+				}
+				else {
+					// never jump
+					if (needs_skip) {
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::JMP,
+							assembly::assembly_operand(no_jump_label)
+						));
+					}
+					return conditional_jump_info().as_constant(false).with_skip(needs_skip);
+				}
+			}
+			case analysis::expressions::expression_node::kind_t::IDENTIFIER: {
+				auto ident = std::get<analysis::expressions::identifier_expression>(condition.value);
+				if (!context.variable_storage->is_variable_declared(ident.name)) {
+					throw std::runtime_error("Variable not found: " + ident.name);
+				}
+				auto var_type = ident.get_type(
+					*context.variable_storage
+				);
+				auto resolved_var_type = context.global_context->type_system->resolved_type(var_type);
+				if (resolved_var_type.kind != analysis::types::type_node::kind_t::PRIMITIVE &&
+					resolved_var_type.kind != analysis::types::type_node::kind_t::POINTER) {
+					throw std::runtime_error("Only primitive or pointer types can be used in conditions");
+				}
+				machine::data_size_t data_size;
+				if (resolved_var_type.kind == analysis::types::type_node::kind_t::POINTER) {
+					data_size = machine::data_size_t::DWORD; // pointers are always 4 bytes
+				}
+				else {
+					auto prim_type = std::get<analysis::types::primitive_type>(resolved_var_type.value);
+					if (!analysis::types::is_integral_type(prim_type) && prim_type != analysis::types::primitive_type::BOOL) {
+						throw std::runtime_error("Only integral or boolean types can be used in conditions");
+					}
+					data_size = analysis::types::to_data_size(prim_type);
+				}
+				// get the memory reference of the variable
+				auto var_info = current_scope.get_variable(ident.name);
+				assembly::assembly_memory var_mem(
+					machine::register_t{machine::register_id::ebp},
+					-static_cast<int32_t>(var_info.offset)
+				);
+				// test the variable
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::TEST,
+					assembly::assembly_operand({
+						data_size,
+						var_mem
+					}),
+					assembly::assembly_operand({
+						data_size,
+						var_mem
+					})
+				));
+				program.push_back(assembly::assembly_instruction(
+					invert ? machine::operation::JZ : machine::operation::JNZ,
+					assembly::assembly_operand(target_label)
+				));
+				if (needs_skip) {
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::JMP,
+						assembly::assembly_operand(no_jump_label)
+					));
+				}
+				return conditional_jump_info().with_skip(needs_skip);
+			}
+			case analysis::expressions::expression_node::kind_t::UNARY: {
+				const auto& unary = std::get<analysis::expressions::unary_expression>(condition.value);
+				switch (unary.op) {
+					case analysis::expressions::unary_expression::operator_t::LNOT: {
+						// just invert the condition and compile the inner expression
+						return compile_conditional_jump(
+							*unary.operand, !invert, target_label, no_jump_label,
+							needs_skip, context, program, current_scope,
+							used_regs, modified_regs, statement_index,
+							label_prefix
+						);
+					}
+					case analysis::expressions::unary_expression::operator_t::MINUS:
+					case analysis::expressions::unary_expression::operator_t::PLUS: {
+						// They do not change the truthiness of the expression, just compile the inner expression
+						return compile_conditional_jump(
+							*unary.operand, invert, target_label, no_jump_label,
+							needs_skip, context, program, current_scope,
+							used_regs, modified_regs, statement_index,
+							label_prefix
+						);
+					}
+					case analysis::expressions::unary_expression::operator_t::SIZEOF: {
+						// sizeof does not make much sense in a condition, but we can handle it anyway,
+						// although it seems like it, it actually can be zero (e.g. void* a = malloc(0); if (sizeof(a)) ...)
+						// find a free register (order to check: eax, ecx, edx, ebx)
+						throw std::runtime_error("Sizeof operator not implemented in conditions yet");
+					}
+					case analysis::expressions::unary_expression::operator_t::NOT: {
+						// if the inner type is a boolean, it is just like LNOT, otherwise we need to test the value
+						auto inner_type = context.global_context->type_system->resolved_type(
+							unary.operand->get_type(
+								*context.variable_storage,
+								*context.global_context->function_storage,
+								*context.global_context->type_system
+							)
+						);
+						if (inner_type.kind != analysis::types::type_node::kind_t::PRIMITIVE)
+							throw std::runtime_error("Only a primitive type can be negated");
+						auto inner_prim_type = std::get<analysis::types::primitive_type>(inner_type.value);
+						if (inner_prim_type == analysis::types::primitive_type::BOOL) {
+							// just like LNOT
+							return compile_conditional_jump(
+								*unary.operand, !invert, target_label, no_jump_label,
+								needs_skip, context, program, current_scope,
+								used_regs, modified_regs, statement_index,
+								label_prefix
+							);
+						}
+						// otherwise, only if the value is ~0, it is false, everything else is true
+						// get the value for ~0
+						uint32_t not_zero_value = 0;
+						switch (analysis::types::to_data_size(inner_prim_type)) {
+							case machine::data_size_t::BYTE: not_zero_value = 0xFF;
+								break;
+							case machine::data_size_t::WORD: not_zero_value = 0xFFFF;
+								break;
+							case machine::data_size_t::DWORD: not_zero_value = 0xFFFFFFFF;
+								break;
+						}
+						// that means we need to jump if !(value == ~0)
+						return compile_conditional_jump(
+							analysis::expressions::expression_node{
+								analysis::expressions::binary_expression{
+									analysis::expressions::binary_expression::operator_t::EQ,
+									unary.operand,
+									std::make_shared<analysis::expressions::expression_node>(
+										analysis::expressions::literal_expression{
+											analysis::expressions::literal_expression::kind_t::UINT,
+											not_zero_value
+										}
+									)
+								}
+							},
+							!invert, target_label, no_jump_label,
+							needs_skip, context, program, current_scope,
+							used_regs, modified_regs, statement_index,
+							label_prefix
+						);
+					}
+					case analysis::expressions::unary_expression::operator_t::DEREFERENCE: {
+						// need to compile the dereference and test the result
+						auto deref_type = context.global_context->type_system->resolved_type(
+							unary.operand->get_type(
+								*context.variable_storage,
+								*context.global_context->function_storage,
+								*context.global_context->type_system
+							)
+						);
+						if (deref_type.kind != analysis::types::type_node::kind_t::POINTER)
+							throw std::runtime_error("Only a pointer type can be dereferenced");
+						// find a free register (order to check: eax, ecx, edx, ebx)
+						machine::register_id addr_reg = find_free_register(
+							used_regs,
+							{
+								machine::register_id::eax, machine::register_id::ecx,
+								machine::register_id::edx, machine::register_id::ebx,
+							}
+						);
+						modified_regs.set(addr_reg, true);
+						bool addr_was_used = used_regs.get(addr_reg);
+						machine::register_access addr_reg_access = machine::register_access::dword;
+						if (addr_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::PUSH,
+								assembly::assembly_operand{addr_reg}
+							));
+						}
+						used_regs.set(addr_reg, false);
+						compile_primitive_expression(
+							*unary.operand, context, program, current_scope,
+							{addr_reg, addr_reg_access}, used_regs,
+							modified_regs, statement_index
+						);
+						machine::data_size_t data_size;
+						auto pointee_type = std::get<analysis::types::pointer_type>(deref_type.value).pointee_type;
+						auto resolved_pointee_type = context.global_context->type_system->resolved_type(*pointee_type);
+						if (resolved_pointee_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
+							auto prim_type = std::get<analysis::types::primitive_type>(resolved_pointee_type.value);
+							if (!analysis::types::is_integral_type(prim_type) && prim_type != analysis::types::primitive_type::BOOL) {
+								throw std::runtime_error("Only integral or boolean types can be used in conditions");
+							}
+							data_size = analysis::types::to_data_size(prim_type);
+						}
+						else if (resolved_pointee_type.kind == analysis::types::type_node::kind_t::POINTER) {
+							data_size = machine::data_size_t::DWORD; // pointers are always 4 bytes
+						}
+						else {
+							throw std::runtime_error("Only primitive or pointer types can be dereferenced in conditions");
+						}
+						// now test the value at the address in addr_reg
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::TEST,
+							assembly::assembly_operand({
+								data_size,
+								assembly::assembly_memory(addr_reg)
+							}),
+							assembly::assembly_operand({
+								data_size,
+								assembly::assembly_memory(addr_reg)
+							})
+						));
+						// if addr_reg was used, restore it
+						if (addr_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::POP,
+								assembly::assembly_result{addr_reg}
+							));
+						}
+						program.push_back(assembly::assembly_instruction(
+							invert ? machine::operation::JZ : machine::operation::JNZ,
+							assembly::assembly_operand(target_label)
+						));
+						if (needs_skip) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::JMP,
+								assembly::assembly_operand(no_jump_label)
+							));
+						}
+						return conditional_jump_info().with_skip(needs_skip);
+					}
+					default:
+						// other unary operators are handled below
+						break;
+				}
+				break; // break out to handle other unary operators below
+			}
+			case analysis::expressions::expression_node::kind_t::MEMBER: {
+				std::cerr << "Optimizer warning: Member access in condition, not optimized\n";
+				break; // break out to handle member access below
+			}
+			case analysis::expressions::expression_node::kind_t::BINARY: {
+				const auto& binary = std::get<analysis::expressions::binary_expression>(condition.value);
+				const auto& left = *binary.left;
+				const auto& right = *binary.right;
+				switch (binary.op) {
+					case analysis::expressions::binary_expression::operator_t::LAND: {
+						if (invert) {
+							// de Morgan's law: !(A && B) == !A || !B
+							// so we can compile !A || !B instead
+							return compile_conditional_jump(
+								analysis::expressions::expression_node{
+									analysis::expressions::binary_expression{
+										analysis::expressions::binary_expression::operator_t::LOR,
+										std::make_shared<analysis::expressions::expression_node>(
+											analysis::expressions::unary_expression{
+												analysis::expressions::unary_expression::operator_t::LNOT,
+												std::make_shared<analysis::expressions::expression_node>(left)
+											}
+										),
+										std::make_shared<analysis::expressions::expression_node>(
+											analysis::expressions::unary_expression{
+												analysis::expressions::unary_expression::operator_t::LNOT,
+												std::make_shared<analysis::expressions::expression_node>(right)
+											}
+										)
+									}
+								},
+								false, target_label, no_jump_label,
+								needs_skip, context, program, current_scope,
+								used_regs, modified_regs, statement_index,
+								label_prefix
+							);
+						}
+						// from here on, we know we are not inverted
+						if ((left.kind == analysis::expressions::expression_node::kind_t::LITERAL &&
+								!std::get<analysis::expressions::literal_expression>(left.value).get_truthiness()) ||
+							(left.kind == analysis::expressions::expression_node::kind_t::UNARY &&
+								std::get<analysis::expressions::unary_expression>(left.value).op ==
+								analysis::expressions::unary_expression::operator_t::LNOT &&
+								std::get<analysis::expressions::unary_expression>(left.value).operand->kind ==
+								analysis::expressions::expression_node::kind_t::LITERAL &&
+								std::get<analysis::expressions::literal_expression>(
+									std::get<analysis::expressions::unary_expression>(left.value).operand->value
+								).get_truthiness()
+							)) {
+							// left is always false, but it might have side effects, so we need to evaluate it
+							return compile_conditional_jump(
+								left, false, target_label, no_jump_label,
+								needs_skip, context, program, current_scope,
+								used_regs, modified_regs, statement_index,
+								label_prefix
+							);
+						}
+
+						/* left is not constant or true!
+						 * left = true & side effects:
+						 *   jump !{left} ignored skip NEXT (reset)
+						 *   NEXT:
+						 *   jump {right} target skip NOJUMP
+						 *   -> right info + side effects
+						 * left = true & no side effects:
+						 *   jump {right} target skip NOJUMP
+						 *   -> right info
+						 * left not constant:
+						 *   jump !{left} NOJUMP skip NEXT (reset)
+						 *   NEXT:
+						 *   jump {right} target skip NOJUMP
+						 *   -> right info + skip + left side effects
+						 */
+						assembly::assembly_program_t left_program;
+						std::string next_label = label_prefix + "_nxt";
+						auto left_jump_info = compile_conditional_jump(
+							left, true, no_jump_label, next_label,
+							false, context, left_program, current_scope,
+							used_regs, modified_regs, statement_index,
+							label_prefix + "l"
+						);
+						if (left_jump_info.skip_jump)
+							left_program.emplace_back(next_label);
+						bool left_inserted = left_jump_info.side_effects || !left_jump_info.constant_condition;
+						if (left_inserted) {
+							// insert left_program and continue with right
+							program.insert(program.end(), left_program.begin(), left_program.end());
+						}
+						// now compile right
+						auto right_jump_info = compile_conditional_jump(
+							right, false, target_label, no_jump_label,
+							needs_skip, context, program, current_scope,
+							used_regs, modified_regs, statement_index,
+							left_inserted ? label_prefix + "r" : label_prefix
+						);
+						right_jump_info.side_effects |= left_jump_info.side_effects;
+						right_jump_info.constant_condition &= left_jump_info.constant_condition;
+						right_jump_info.skip_jump |= !left_jump_info.constant_condition;
+						return right_jump_info;
+					}
+					case analysis::expressions::binary_expression::operator_t::LOR: {
+						if (invert) {
+							// de Morgan's law: !(A || B) == !A && !B
+							// so we can compile !A && !B instead
+							return compile_conditional_jump(
+								analysis::expressions::expression_node{
+									analysis::expressions::binary_expression{
+										analysis::expressions::binary_expression::operator_t::LAND,
+										std::make_shared<analysis::expressions::expression_node>(
+											analysis::expressions::unary_expression{
+												analysis::expressions::unary_expression::operator_t::LNOT,
+												std::make_shared<analysis::expressions::expression_node>(left)
+											}
+										),
+										std::make_shared<analysis::expressions::expression_node>(
+											analysis::expressions::unary_expression{
+												analysis::expressions::unary_expression::operator_t::LNOT,
+												std::make_shared<analysis::expressions::expression_node>(right)
+											}
+										)
+									}
+								},
+								false, target_label, no_jump_label,
+								needs_skip, context, program, current_scope,
+								used_regs, modified_regs, statement_index,
+								label_prefix
+							);
+						}
+						// from here on, we know we are not inverted
+						if ((left.kind == analysis::expressions::expression_node::kind_t::LITERAL &&
+								std::get<analysis::expressions::literal_expression>(left.value).get_truthiness()) ||
+							(left.kind == analysis::expressions::expression_node::kind_t::UNARY &&
+								std::get<analysis::expressions::unary_expression>(left.value).op ==
+								analysis::expressions::unary_expression::operator_t::LNOT &&
+								std::get<analysis::expressions::unary_expression>(left.value).operand->kind ==
+								analysis::expressions::expression_node::kind_t::LITERAL &&
+								!std::get<analysis::expressions::literal_expression>(
+									std::get<analysis::expressions::unary_expression>(left.value).operand->value
+								).get_truthiness()
+							)) {
+							// left is always true, but it might have side effects, so we need to evaluate it
+							return compile_conditional_jump(
+								left, false, target_label, no_jump_label,
+								needs_skip, context, program, current_scope,
+								used_regs, modified_regs, statement_index,
+								label_prefix
+							);
+						}
+						/* left is not constant or false!
+						 * left = false & side effects:
+						 *   jump {left} ignored skip NEXT (reset)
+						 *   NEXT:
+						 *   jump {right} target skip NOJUMP
+						 *   -> right info + side effects
+						 * left = false & no side effects:
+						 *   jump {right} target skip NOJUMP
+						 *   -> right info
+						 * left not constant:
+						 *   jump {left} NOJUMP skip NEXT (reset)
+						 *   NEXT:
+						 *   jump {right} target skip NOJUMP
+						 *   -> right info + skip + left side effects
+						 */
+						assembly::assembly_program_t left_program;
+						std::string next_label = label_prefix + "_nxt";
+						auto left_jump_info = compile_conditional_jump(
+							left, false, no_jump_label, next_label,
+							false, context, left_program, current_scope,
+							used_regs, modified_regs, statement_index,
+							label_prefix + "l"
+						);
+						if (left_jump_info.skip_jump)
+							left_program.emplace_back(next_label);
+						bool left_inserted = left_jump_info.side_effects || !left_jump_info.constant_condition;
+						if (left_inserted) {
+							// insert left_program and continue with right
+							program.insert(program.end(), left_program.begin(), left_program.end());
+						}
+						// now compile right
+						auto right_jump_info = compile_conditional_jump(
+							right, false, target_label, no_jump_label,
+							needs_skip, context, program, current_scope,
+							used_regs, modified_regs, statement_index,
+							left_inserted ? label_prefix + "r" : label_prefix
+						);
+						right_jump_info.side_effects |= left_jump_info.side_effects;
+						right_jump_info.constant_condition &= left_jump_info.constant_condition;
+						right_jump_info.skip_jump |= !left_jump_info.constant_condition;
+						return right_jump_info;
+					}
+					case analysis::expressions::binary_expression::operator_t::SUB:
+					// is just like != (if they are equal, the subtraction is zero, so the condition is false)
+					case analysis::expressions::binary_expression::operator_t::NEQ:
+					case analysis::expressions::binary_expression::operator_t::EQ: {
+						if (binary.op == analysis::expressions::binary_expression::operator_t::SUB ||
+							binary.op == analysis::expressions::binary_expression::operator_t::NEQ) {
+							invert = !invert;
+						}
+						bool left_is_const = left.kind == analysis::expressions::expression_node::kind_t::LITERAL;
+						bool right_is_const = right.kind == analysis::expressions::expression_node::kind_t::LITERAL;
+						if (left_is_const || right_is_const) {
+							// if one side is constant, we can do a subtraction and test the result
+							const auto& const_expr = left_is_const ? left : right;
+							const auto& var_expr = left_is_const ? right : left;
+							auto const_lit = std::get<analysis::expressions::literal_expression>(const_expr.value);
+							if (const_lit.kind != analysis::expressions::literal_expression::kind_t::BOOL &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::UINT &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::INT &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::CHAR &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::LONG &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::ULONG &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::NULLPTR) {
+								throw std::runtime_error("Only boolean or integer literals can be used in conditions");
+							}
+							analysis::types::type_node var_type = context.global_context->type_system->resolved_type(
+								var_expr.get_type(
+									*context.variable_storage,
+									*context.global_context->function_storage,
+									*context.global_context->type_system
+								)
+							);
+							if (var_type.kind != analysis::types::type_node::kind_t::PRIMITIVE &&
+								var_type.kind != analysis::types::type_node::kind_t::POINTER)
+								throw std::runtime_error("Only primitive or pointer types can be compared");
+							analysis::types::primitive_type var_prim_type;
+							if (var_type.kind == analysis::types::type_node::kind_t::PRIMITIVE)
+								var_prim_type = std::get<analysis::types::primitive_type>(var_type.value);
+							else
+								var_prim_type = analysis::types::primitive_type::UINT; // pointers are treated as unsigned integers
+							uint32_t const_value = const_lit.as_matching(var_prim_type);
+							// find a free register (order to check: eax, ecx, edx, ebx)
+							machine::register_id cond_reg_id = find_free_register(
+								used_regs,
+								{
+									machine::register_id::eax, machine::register_id::ecx,
+									machine::register_id::edx, machine::register_id::ebx,
+								}
+							);
+							modified_regs.set(cond_reg_id, true);
+							bool cond_was_used = used_regs.get(cond_reg_id);
+							machine::register_access cond_reg_access = machine::register_access::dword;
+							if (var_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
+								if (var_prim_type == analysis::types::primitive_type::BOOL ||
+									var_prim_type == analysis::types::primitive_type::CHAR ||
+									var_prim_type == analysis::types::primitive_type::UCHAR) {
+									cond_reg_access = machine::register_access::low_byte;
+								}
+								else if (var_prim_type == analysis::types::primitive_type::SHORT ||
+									var_prim_type == analysis::types::primitive_type::USHORT) {
+									cond_reg_access = machine::register_access::word;
+								}
+								else {
+									cond_reg_access = machine::register_access::dword;
+								}
+							}
+							auto cond_reg = machine::register_t{cond_reg_id, cond_reg_access};
+							if (cond_was_used) {
+								program.push_back(assembly::assembly_instruction(
+									machine::operation::PUSH,
+									assembly::assembly_operand{cond_reg_id}
+								));
+							}
+							used_regs.set(cond_reg_id, false);
+							compile_primitive_expression(
+								var_expr, context, program, current_scope,
+								cond_reg, used_regs, modified_regs,
+								statement_index, true
+							);
+							// compare the register with the constant
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::CMP,
+								assembly::assembly_operand{cond_reg},
+								assembly::assembly_operand{static_cast<int32_t>(const_value)}
+							));
+							// restore cond_reg if needed
+							if (cond_was_used) {
+								program.push_back(assembly::assembly_instruction(
+									machine::operation::POP,
+									assembly::assembly_result{cond_reg}
+								));
+							}
+							// now jump if zero/non-zero
+							program.push_back(assembly::assembly_instruction(
+								invert ? machine::operation::JZ : machine::operation::JNZ,
+								assembly::assembly_operand(target_label)
+							));
+							if (needs_skip) {
+								program.push_back(assembly::assembly_instruction(
+									machine::operation::JMP,
+									assembly::assembly_operand(no_jump_label)
+								));
+							}
+							return conditional_jump_info().with_skip(needs_skip).with_side_effects(true);
+						}
+						// neither side is constant, compile left and right and compare
+						// find two free registers (order to check: eax, ecx, edx, ebx)
+						machine::register_id left_reg_id = find_free_register(
+							used_regs,
+							{
+								machine::register_id::eax, machine::register_id::ecx,
+								machine::register_id::edx, machine::register_id::ebx,
+								machine::register_id::esi, machine::register_id::edi,
+							}
+						);
+						modified_regs.set(left_reg_id, true);
+						bool left_was_used = used_regs.get(left_reg_id);
+						used_regs.set(left_reg_id, false);
+						machine::register_id right_reg_id = find_free_register(
+							used_regs,
+							{
+								machine::register_id::eax, machine::register_id::ecx,
+								machine::register_id::edx, machine::register_id::ebx,
+								machine::register_id::esi, machine::register_id::edi,
+							},
+							{left_reg_id} // right reg must be different from left reg
+						);
+						modified_regs.set(right_reg_id, true);
+						bool right_was_used = used_regs.get(right_reg_id);
+						used_regs.set(right_reg_id, false);
+						machine::register_access left_reg_access = machine::register_access::dword;
+						machine::register_access right_reg_access = machine::register_access::dword;
+						auto left_type = context.global_context->type_system->resolved_type(
+							left.get_type(
+								*context.variable_storage,
+								*context.global_context->function_storage,
+								*context.global_context->type_system
+							)
+						);
+						auto right_type = context.global_context->type_system->resolved_type(
+							right.get_type(
+								*context.variable_storage,
+								*context.global_context->function_storage,
+								*context.global_context->type_system
+							)
+						);
+						if (left_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
+							auto left_prim_type = std::get<analysis::types::primitive_type>(left_type.value);
+							if (left_prim_type == analysis::types::primitive_type::BOOL ||
+								left_prim_type == analysis::types::primitive_type::CHAR ||
+								left_prim_type == analysis::types::primitive_type::UCHAR) {
+								left_reg_access = machine::register_access::low_byte;
+							}
+							else if (left_prim_type == analysis::types::primitive_type::SHORT ||
+								left_prim_type == analysis::types::primitive_type::USHORT) {
+								left_reg_access = machine::register_access::word;
+							}
+							else {
+								left_reg_access = machine::register_access::dword;
+							}
+						}
+						if (right_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
+							auto right_prim_type = std::get<analysis::types::primitive_type>(right_type.value);
+							if (right_prim_type == analysis::types::primitive_type::BOOL ||
+								right_prim_type == analysis::types::primitive_type::CHAR ||
+								right_prim_type == analysis::types::primitive_type::UCHAR) {
+								right_reg_access = machine::register_access::low_byte;
+							}
+							else if (right_prim_type == analysis::types::primitive_type::SHORT ||
+								right_prim_type == analysis::types::primitive_type::USHORT) {
+								right_reg_access = machine::register_access::word;
+							}
+							else {
+								right_reg_access = machine::register_access::dword;
+							}
+						}
+						auto left_reg = machine::register_t{left_reg_id, left_reg_access};
+						auto right_reg = machine::register_t{right_reg_id, right_reg_access};
+						if (left_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::PUSH,
+								assembly::assembly_operand{left_reg_id}
+							));
+						}
+						if (right_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::PUSH,
+								assembly::assembly_operand{right_reg_id}
+							));
+						}
+						compile_primitive_expression(
+							left, context, program, current_scope,
+							left_reg, used_regs, modified_regs,
+							statement_index, true
+						);
+						used_regs.set(left_reg_id, true); // left_reg is now used
+						compile_primitive_expression(
+							right, context, program, current_scope,
+							right_reg, used_regs, modified_regs,
+							statement_index, true
+						);
+						// compare the two registers
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::CMP,
+							assembly::assembly_operand{left_reg},
+							assembly::assembly_operand{right_reg}
+						));
+						// restore registers if needed
+						if (right_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::POP,
+								assembly::assembly_result{right_reg}
+							));
+						}
+						if (left_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::POP,
+								assembly::assembly_result{left_reg}
+							));
+						}
+						// finally do the jump
+						program.push_back(assembly::assembly_instruction(
+							invert ? machine::operation::JZ : machine::operation::JNZ,
+							assembly::assembly_operand(target_label)
+						));
+						if (needs_skip) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::JMP,
+								assembly::assembly_operand(no_jump_label)
+							));
+						}
+						return conditional_jump_info().with_skip(needs_skip).with_side_effects(true);
+					}
+					case analysis::expressions::binary_expression::operator_t::GT:
+					case analysis::expressions::binary_expression::operator_t::GTE:
+					case analysis::expressions::binary_expression::operator_t::LT:
+					case analysis::expressions::binary_expression::operator_t::LTE: {
+						// check that both sides are primitive types
+						auto left_type = context.global_context->type_system->resolved_type(
+							left.get_type(
+								*context.variable_storage,
+								*context.global_context->function_storage,
+								*context.global_context->type_system
+							)
+						);
+						auto right_type = context.global_context->type_system->resolved_type(
+							right.get_type(
+								*context.variable_storage,
+								*context.global_context->function_storage,
+								*context.global_context->type_system
+							)
+						);
+						if (left_type.kind != analysis::types::type_node::kind_t::PRIMITIVE ||
+							right_type.kind != analysis::types::type_node::kind_t::PRIMITIVE)
+							throw std::runtime_error("Only primitive types can be compared");
+						auto left_prim_type = std::get<analysis::types::primitive_type>(left_type.value);
+						auto right_prim_type = std::get<analysis::types::primitive_type>(right_type.value);
+						if (!analysis::types::is_integral_type(left_prim_type) ||
+							!analysis::types::is_integral_type(right_prim_type))
+							throw std::runtime_error("Only integral types can be compared");
+						// check if one side is constant
+						bool left_is_const = left.kind == analysis::expressions::expression_node::kind_t::LITERAL;
+						bool right_is_const = right.kind == analysis::expressions::expression_node::kind_t::LITERAL;
+						if (left_is_const || right_is_const) {
+							// if one side is constant, we can do a subtraction and test the result
+							const auto& const_expr = left_is_const ? left : right;
+							const auto& var_expr = left_is_const ? right : left;
+							const auto& var_prim_type = left_is_const ? right_prim_type : left_prim_type;
+							auto const_lit = std::get<analysis::expressions::literal_expression>(const_expr.value);
+							if (const_lit.kind != analysis::expressions::literal_expression::kind_t::UINT &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::INT &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::CHAR &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::LONG &&
+								const_lit.kind != analysis::expressions::literal_expression::kind_t::ULONG) {
+								throw std::runtime_error("Only integer literals can be used in conditions");
+							}
+							bool signed_comparison = analysis::types::is_signed_integral_type(var_prim_type);
+							uint32_t const_value = const_lit.as_matching(var_prim_type);
+							// find a free register (order to check: eax, ecx, edx, ebx)
+							machine::register_id var_reg_id = find_free_register(
+								used_regs,
+								{
+									machine::register_id::eax, machine::register_id::ecx,
+									machine::register_id::edx, machine::register_id::ebx,
+									machine::register_id::esi, machine::register_id::edi,
+								}
+							);
+							modified_regs.set(var_reg_id, true);
+							bool var_was_used = used_regs.get(var_reg_id);
+							machine::register_access var_reg_access = machine::register_access::dword;
+							if (var_prim_type == analysis::types::primitive_type::BOOL ||
+								var_prim_type == analysis::types::primitive_type::CHAR ||
+								var_prim_type == analysis::types::primitive_type::UCHAR) {
+								var_reg_access = machine::register_access::low_byte;
+							}
+							else if (var_prim_type == analysis::types::primitive_type::SHORT ||
+								var_prim_type == analysis::types::primitive_type::USHORT) {
+								var_reg_access = machine::register_access::word;
+							}
+							else {
+								var_reg_access = machine::register_access::dword;
+							}
+							auto var_reg = machine::register_t{var_reg_id, var_reg_access};
+							if (var_was_used) {
+								program.push_back(assembly::assembly_instruction(
+									machine::operation::PUSH,
+									assembly::assembly_operand{var_reg_id}
+								));
+							}
+							used_regs.set(var_reg_id, false);
+							compile_primitive_expression(
+								var_expr, context, program, current_scope,
+								var_reg, used_regs, modified_regs,
+								statement_index, true
+							);
+							// compare the register with the constant
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::CMP,
+								assembly::assembly_operand{var_reg},
+								assembly::assembly_operand{static_cast<int32_t>(const_value)}
+							));
+							machine::operation jump_op;
+							if (left_is_const)
+								invert = !invert; // reverse the operation if the constant is on the left (because we do var - const)
+							switch (binary.op) {
+								case analysis::expressions::binary_expression::operator_t::GT:
+									jump_op = machine::operation::JG;
+									break;
+								case analysis::expressions::binary_expression::operator_t::GTE:
+									jump_op = machine::operation::JGE;
+									break;
+								case analysis::expressions::binary_expression::operator_t::LT:
+									jump_op = machine::operation::JL;
+									break;
+								case analysis::expressions::binary_expression::operator_t::LTE:
+									jump_op = machine::operation::JLE;
+									break;
+								default:
+									throw std::runtime_error("Internal compiler error: invalid comparison operator");
+							}
+							if (invert) {
+								// invert the jump operation
+								switch (jump_op) {
+									case machine::operation::JG:
+										jump_op = machine::operation::JLE;
+										break;
+									case machine::operation::JGE:
+										jump_op = machine::operation::JL;
+										break;
+									case machine::operation::JL:
+										jump_op = machine::operation::JGE;
+										break;
+									case machine::operation::JLE:
+										jump_op = machine::operation::JG;
+										break;
+									default:
+										throw std::runtime_error("Internal compiler error: invalid jump operation");
+								}
+							}
+							if (!signed_comparison) {
+								// use unsigned jumps for unsigned comparisons
+								switch (jump_op) {
+									case machine::operation::JG:
+										jump_op = machine::operation::JA;
+										break;
+									case machine::operation::JGE:
+										jump_op = machine::operation::JAE;
+										break;
+									case machine::operation::JL:
+										jump_op = machine::operation::JB;
+										break;
+									case machine::operation::JLE:
+										jump_op = machine::operation::JBE;
+										break;
+									default:
+										throw std::runtime_error("Internal compiler error: invalid jump operation");
+								}
+							}
+							// restore var_reg if needed
+							if (var_was_used) {
+								program.push_back(assembly::assembly_instruction(
+									machine::operation::POP,
+									assembly::assembly_result{var_reg}
+								));
+							}
+							// finally, the jump
+							program.push_back(assembly::assembly_instruction(
+								jump_op,
+								assembly::assembly_operand(target_label)
+							));
+							if (needs_skip) {
+								program.push_back(assembly::assembly_instruction(
+									machine::operation::JMP,
+									assembly::assembly_operand(no_jump_label)
+								));
+							}
+							return conditional_jump_info().with_skip(needs_skip).with_side_effects(true);
+						}
+						bool left_signed = analysis::types::is_signed_integral_type(left_prim_type);
+						bool right_signed = analysis::types::is_signed_integral_type(right_prim_type);
+						bool signed_comparison = left_signed || right_signed;
+						// neither side is constant, compile left and right and compare
+						// find two free registers
+						machine::register_id left_reg_id = find_free_register(
+							used_regs,
+							{
+								machine::register_id::eax, machine::register_id::ecx,
+								machine::register_id::edx, machine::register_id::ebx,
+								machine::register_id::esi, machine::register_id::edi,
+							}
+						);
+						modified_regs.set(left_reg_id, true);
+						bool left_was_used = used_regs.get(left_reg_id);
+						used_regs.set(left_reg_id, false);
+						machine::register_id right_reg_id = find_free_register(
+							used_regs,
+							{
+								machine::register_id::eax, machine::register_id::ecx,
+								machine::register_id::edx, machine::register_id::ebx,
+								machine::register_id::esi, machine::register_id::edi,
+							},
+							{left_reg_id} // right reg must be different from left reg
+						);
+						modified_regs.set(right_reg_id, true);
+						bool right_was_used = used_regs.get(right_reg_id);
+						used_regs.set(right_reg_id, false);
+						machine::register_access left_reg_access = machine::register_access::dword;
+						machine::register_access right_reg_access = machine::register_access::dword;
+						if (left_prim_type == analysis::types::primitive_type::BOOL ||
+							left_prim_type == analysis::types::primitive_type::CHAR ||
+							left_prim_type == analysis::types::primitive_type::UCHAR) {
+							left_reg_access = machine::register_access::low_byte;
+						}
+						else if (left_prim_type == analysis::types::primitive_type::SHORT ||
+							left_prim_type == analysis::types::primitive_type::USHORT) {
+							left_reg_access = machine::register_access::word;
+						}
+						else {
+							left_reg_access = machine::register_access::dword;
+						}
+						if (right_prim_type == analysis::types::primitive_type::BOOL ||
+							right_prim_type == analysis::types::primitive_type::CHAR ||
+							right_prim_type == analysis::types::primitive_type::UCHAR) {
+							right_reg_access = machine::register_access::low_byte;
+						}
+						else if (right_prim_type == analysis::types::primitive_type::SHORT ||
+							right_prim_type == analysis::types::primitive_type::USHORT) {
+							right_reg_access = machine::register_access::word;
+						}
+						else {
+							right_reg_access = machine::register_access::dword;
+						}
+						auto left_reg = machine::register_t{left_reg_id, left_reg_access};
+						auto right_reg = machine::register_t{right_reg_id, right_reg_access};
+						if (left_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::PUSH,
+								assembly::assembly_operand{left_reg_id}
+							));
+						}
+						if (right_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::PUSH,
+								assembly::assembly_operand{right_reg_id}
+							));
+						}
+						compile_primitive_expression(
+							left, context, program, current_scope,
+							left_reg, used_regs, modified_regs,
+							statement_index, true
+						);
+						used_regs.set(left_reg_id, true); // left_reg is now used
+						compile_primitive_expression(
+							right, context, program, current_scope,
+							right_reg, used_regs, modified_regs,
+							statement_index, true
+						);
+						// compare the two registers
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::CMP,
+							assembly::assembly_operand{left_reg},
+							assembly::assembly_operand{right_reg}
+						));
+						machine::operation jump_op;
+						switch (binary.op) {
+							case analysis::expressions::binary_expression::operator_t::GT:
+								jump_op = machine::operation::JG;
+								break;
+							case analysis::expressions::binary_expression::operator_t::GTE:
+								jump_op = machine::operation::JGE;
+								break;
+							case analysis::expressions::binary_expression::operator_t::LT:
+								jump_op = machine::operation::JL;
+								break;
+							case analysis::expressions::binary_expression::operator_t::LTE:
+								jump_op = machine::operation::JLE;
+								break;
+							default:
+								throw std::runtime_error("Internal compiler error: invalid comparison operator");
+						}
+						if (invert) {
+							// invert the jump operation
+							switch (jump_op) {
+								case machine::operation::JG:
+									jump_op = machine::operation::JLE;
+									break;
+								case machine::operation::JGE:
+									jump_op = machine::operation::JL;
+									break;
+								case machine::operation::JL:
+									jump_op = machine::operation::JGE;
+									break;
+								case machine::operation::JLE:
+									jump_op = machine::operation::JG;
+									break;
+								default:
+									throw std::runtime_error("Internal compiler error: invalid jump operation");
+							}
+						}
+						if (!signed_comparison) {
+							// use unsigned jumps for unsigned comparisons
+							switch (jump_op) {
+								case machine::operation::JG:
+									jump_op = machine::operation::JA;
+									break;
+								case machine::operation::JGE:
+									jump_op = machine::operation::JAE;
+									break;
+								case machine::operation::JL:
+									jump_op = machine::operation::JB;
+									break;
+								case machine::operation::JLE:
+									jump_op = machine::operation::JBE;
+									break;
+								default:
+									throw std::runtime_error("Internal compiler error: invalid jump operation");
+							}
+						}
+						// restore registers if needed
+						if (right_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::POP,
+								assembly::assembly_result{right_reg}
+							));
+						}
+						if (left_was_used) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::POP,
+								assembly::assembly_result{left_reg}
+							));
+						}
+						// finally, do the jump
+						program.push_back(assembly::assembly_instruction(
+							jump_op,
+							assembly::assembly_operand(target_label)
+						));
+						if (needs_skip) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::JMP,
+								assembly::assembly_operand(no_jump_label)
+							));
+						}
+						return conditional_jump_info().with_skip(needs_skip).with_side_effects(true);
+					}
+					default:
+						// other binary operators are not allowed in conditions
+						throw std::runtime_error("Only logical and comparison operators can be used in conditions");
+				}
+			}
+			case analysis::expressions::expression_node::kind_t::TERNARY:
+				break; // TODO: handle ternary expressions
+			default:
+				break; // other expressions are handled below
+		}
+		// for other expressions, compile to a register and test
+		// find a free register (order to check: eax, ecx, edx, ebx)
+		machine::register_id cond_reg_id = find_free_register(
+			used_regs,
+			{
+				machine::register_id::eax, machine::register_id::ecx,
+				machine::register_id::edx, machine::register_id::ebx,
+			}
+		);
+		modified_regs.set(cond_reg_id, true);
+		bool cond_was_used = used_regs.get(cond_reg_id);
+		machine::register_access cond_reg_access = machine::register_access::dword;
+		auto cond_type = context.global_context->type_system->resolved_type(
+			condition.get_type(
+				*context.variable_storage,
+				*context.global_context->function_storage,
+				*context.global_context->type_system
+			)
+		);
+		if (cond_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
+			auto cond_prim_type = std::get<analysis::types::primitive_type>(cond_type.value);
+			if (cond_prim_type == analysis::types::primitive_type::BOOL ||
+				cond_prim_type == analysis::types::primitive_type::CHAR ||
+				cond_prim_type == analysis::types::primitive_type::UCHAR) {
+				cond_reg_access = machine::register_access::low_byte;
+			}
+			else if (cond_prim_type == analysis::types::primitive_type::SHORT ||
+				cond_prim_type == analysis::types::primitive_type::USHORT) {
+				cond_reg_access = machine::register_access::word;
+			}
+			else {
+				cond_reg_access = machine::register_access::dword;
+			}
+		}
+		auto cond_reg = machine::register_t{cond_reg_id, cond_reg_access};
+		if (cond_was_used) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::PUSH,
+				assembly::assembly_operand{cond_reg_id}
+			));
+		}
+		used_regs.set(cond_reg_id, false);
+		compile_primitive_expression(
+			condition, context, program, current_scope,
+			cond_reg, used_regs, modified_regs,
+			statement_index, true
+		);
+		// test the condition
+		program.push_back(assembly::assembly_instruction(
+			machine::operation::TEST,
+			assembly::assembly_operand{cond_reg},
+			assembly::assembly_operand{cond_reg}
+		));
+		program.push_back(assembly::assembly_instruction(
+			invert ? machine::operation::JZ : machine::operation::JNZ,
+			assembly::assembly_operand(target_label)
+		));
+		if (needs_skip) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::JMP,
+				assembly::assembly_operand(no_jump_label)
+			));
+		}
+		// restore cond_reg if needed
+		if (cond_was_used) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::POP,
+				assembly::assembly_result{cond_reg}
+			));
+		}
+		return conditional_jump_info().with_skip(needs_skip);
+	}
+
 	void compile_block_statement(
 		const analysis::statements::block_statement& block,
 		const scoped_compilation_context& context,
@@ -2498,6 +3641,7 @@ namespace unqlang::compiler {
 			);
 		}
 	}
+
 	void compile_declaration_statement(
 		const analysis::statements::declaration_statement& decl,
 		const scoped_compilation_context& context,
@@ -2621,7 +3765,8 @@ namespace unqlang::compiler {
 			};
 			compile_block_statement(
 				clause.body, child_context, program, *child_scope.child,
-				used_regs, modified_regs, label_prefix + "if" + std::to_string(statement_index) + "_c" + std::to_string(i) + "_"
+				used_regs, modified_regs,
+				label_prefix + "if" + std::to_string(statement_index) + "_c" + std::to_string(i) + "_"
 			);
 			bool clause_returns = child_scope.child->all_paths_return;
 			all_return &= clause_returns;

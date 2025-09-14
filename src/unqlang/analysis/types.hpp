@@ -24,11 +24,11 @@ namespace unqlang::analysis::types {
 		// signed char (8-bit signed integer type)
 		SIGNED_CHAR,
 		SCHAR = SIGNED_CHAR,
-		// char (8-bit without specified signedness, treated as signed char)
-		CHAR = SIGNED_CHAR,
 		// unsigned char (8-bit unsigned integer type)
 		UNSIGNED_CHAR,
 		UCHAR = UNSIGNED_CHAR,
+		// char (8-bit without specified signedness, treated as unsigned char)
+		CHAR = UNSIGNED_CHAR,
 
 		// short (16-bit)
 		// signed short int (16-bit signed integer type)

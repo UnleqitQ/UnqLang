@@ -22,10 +22,10 @@ namespace unqlang::analysis::expressions {
 		std::variant<
 			std::monostate, // NULLPTR
 			char, // CHAR
-			unsigned int, // UINT
-			int, // INT
-			unsigned long, // ULONG
-			long, // LONG
+			uint32_t, // UINT
+			int32_t, // INT
+			uint64_t, // ULONG
+			int64_t, // LONG
 			float, // FLOAT
 			double, // DOUBLE
 			std::string, // STRING
@@ -77,15 +77,17 @@ namespace unqlang::analysis::expressions {
 				case kind_t::CHAR:
 					return static_cast<uint32_t>(std::get<char>(value));
 				case kind_t::UINT:
-					return std::get<unsigned int>(value);
+					return std::get<uint32_t>(value);
 				case kind_t::INT:
-					return static_cast<uint32_t>(std::get<int>(value));
+					return static_cast<uint32_t>(std::get<int32_t>(value));
 				case kind_t::ULONG:
-					return static_cast<uint32_t>(std::get<unsigned long>(value));
+					return static_cast<uint32_t>(std::get<uint64_t>(value));
 				case kind_t::LONG:
-					return static_cast<uint32_t>(std::get<long>(value));
+					return static_cast<uint32_t>(std::get<int64_t>(value));
 				case kind_t::BOOL:
 					return std::get<bool>(value) ? 1 : 0;
+				case kind_t::NULLPTR:
+					return 0;
 				default:
 					throw std::runtime_error("Cannot convert literal to uint32");
 			}
@@ -95,17 +97,151 @@ namespace unqlang::analysis::expressions {
 				case kind_t::CHAR:
 					return static_cast<int32_t>(std::get<char>(value));
 				case kind_t::UINT:
-					return static_cast<int32_t>(std::get<unsigned int>(value));
+					return static_cast<int32_t>(std::get<uint32_t>(value));
 				case kind_t::INT:
-					return std::get<int>(value);
+					return std::get<int32_t>(value);
 				case kind_t::ULONG:
-					return static_cast<int32_t>(std::get<unsigned long>(value));
+					return static_cast<int32_t>(std::get<uint64_t>(value));
 				case kind_t::LONG:
-					return static_cast<int32_t>(std::get<long>(value));
+					return static_cast<int32_t>(std::get<int64_t>(value));
 				case kind_t::BOOL:
 					return std::get<bool>(value) ? 1 : 0;
+				case kind_t::NULLPTR:
+					return 0;
 				default:
 					throw std::runtime_error("Cannot convert literal to int32");
+			}
+		}
+
+		bool get_truthiness() const {
+			switch (kind) {
+				case kind_t::NULLPTR:
+					return false;
+				case kind_t::CHAR:
+					return std::get<char>(value) != 0;
+				case kind_t::UINT:
+					return std::get<uint32_t>(value) != 0;
+				case kind_t::INT:
+					return std::get<int32_t>(value) != 0;
+				case kind_t::ULONG:
+					return std::get<uint64_t>(value) != 0;
+				case kind_t::LONG:
+					return std::get<int64_t>(value) != 0;
+				case kind_t::FLOAT:
+					return std::get<float>(value) != 0.0f;
+				case kind_t::DOUBLE:
+					return std::get<double>(value) != 0.0;
+				case kind_t::STRING:
+					return !std::get<std::string>(value).empty();
+				case kind_t::BOOL:
+					return std::get<bool>(value);
+			}
+			throw std::runtime_error("Unknown literal type");
+		}
+		uint32_t as_matching(types::primitive_type pt) const {
+			switch (pt) {
+				case types::primitive_type::BOOL:
+					return get_truthiness() ? 1 : 0;
+				case types::primitive_type::SIGNED_CHAR:
+					switch (kind) {
+						case kind_t::CHAR:
+							return static_cast<uint32_t>(std::get<char>(value));
+						case kind_t::UINT:
+							return static_cast<uint32_t>(std::get<uint32_t>(value));
+						case kind_t::INT: {
+							bool is_negative = std::get<int32_t>(value) < 0;
+							return static_cast<uint32_t>(std::get<int32_t>(value) & 0x7F | (is_negative ? 0x80 : 0x00));
+						}
+						case kind_t::ULONG:
+							return static_cast<uint32_t>(std::get<uint64_t>(value));
+						case kind_t::LONG: {
+							bool is_negative = std::get<int64_t>(value) < 0;
+							return static_cast<uint32_t>(std::get<int64_t>(value) & 0x7F | (is_negative ? 0x80 : 0x00));
+						}
+						case kind_t::BOOL:
+							return std::get<bool>(value) ? 1 : 0;
+						case kind_t::NULLPTR:
+							return 0;
+						default:
+							throw std::runtime_error("Cannot convert literal to signed char");
+					}
+				case types::primitive_type::UNSIGNED_CHAR:
+					switch (kind) {
+						case kind_t::CHAR:
+							return static_cast<uint32_t>(static_cast<unsigned char>(std::get<char>(value)));
+						case kind_t::UINT:
+							return static_cast<uint32_t>(std::get<uint32_t>(value));
+						case kind_t::INT:
+							return static_cast<uint32_t>(std::get<int32_t>(value) & 0xFF);
+						case kind_t::ULONG:
+							return static_cast<uint32_t>(std::get<uint64_t>(value));
+						case kind_t::LONG:
+							return static_cast<uint32_t>(std::get<int64_t>(value) & 0xFF);
+						case kind_t::BOOL:
+							return std::get<bool>(value) ? 1 : 0;
+						case kind_t::NULLPTR:
+							return 0;
+						default:
+							throw std::runtime_error("Cannot convert literal to unsigned char");
+					}
+				case types::primitive_type::SHORT:
+					switch (kind) {
+						case kind_t::CHAR:
+							return static_cast<uint32_t>(std::get<char>(value));
+						case kind_t::UINT:
+							return static_cast<uint32_t>(std::get<uint32_t>(value));
+						case kind_t::INT: {
+							bool is_negative = std::get<int32_t>(value) < 0;
+							return static_cast<uint32_t>(std::get<int32_t>(value) & 0x7FFF | (is_negative ? 0x8000 : 0x0000));
+						}
+						case kind_t::ULONG:
+							return static_cast<uint32_t>(std::get<uint64_t>(value));
+						case kind_t::LONG: {
+							bool is_negative = std::get<int64_t>(value) < 0;
+							return static_cast<uint32_t>(std::get<int64_t>(value) & 0x7FFF | (is_negative ? 0x8000 : 0x0000));
+						}
+						case kind_t::BOOL:
+							return std::get<bool>(value) ? 1 : 0;
+						case kind_t::NULLPTR:
+							return 0;
+						default:
+							throw std::runtime_error("Cannot convert literal to short");
+					}
+				case types::primitive_type::UNSIGNED_SHORT:
+					switch (kind) {
+						case kind_t::CHAR:
+							return static_cast<uint32_t>(static_cast<unsigned char>(std::get<char>(value)));
+						case kind_t::UINT:
+							return static_cast<uint32_t>(std::get<uint32_t>(value));
+						case kind_t::INT:
+							return static_cast<uint32_t>(std::get<int32_t>(value) & 0xFFFF);
+						case kind_t::ULONG:
+							return static_cast<uint32_t>(std::get<uint64_t>(value));
+						case kind_t::LONG:
+							return static_cast<uint32_t>(std::get<int64_t>(value) & 0xFFFF);
+						case kind_t::BOOL:
+							return std::get<bool>(value) ? 1 : 0;
+						case kind_t::NULLPTR:
+							return 0;
+						default:
+							throw std::runtime_error("Cannot convert literal to unsigned short");
+					}
+				case types::primitive_type::SIGNED_INT:
+					return as_int32();
+				case types::primitive_type::UNSIGNED_INT:
+					return as_uint32();
+				case types::primitive_type::SIGNED_LONG:
+					return static_cast<uint32_t>(as_int32());
+				case types::primitive_type::UNSIGNED_LONG:
+					return static_cast<uint32_t>(as_uint32());
+				case types::primitive_type::FLOAT:
+					return static_cast<uint32_t>(std::get<float>(value));
+				case types::primitive_type::DOUBLE:
+					return static_cast<uint32_t>(std::get<double>(value));
+				case types::primitive_type::VOID:
+					return 0;
+				default:
+					throw std::runtime_error("Cannot convert literal to specified primitive type");
 			}
 		}
 
@@ -115,16 +251,16 @@ namespace unqlang::analysis::expressions {
 		static literal_expression make_char(char c) {
 			return literal_expression(kind_t::CHAR, c);
 		}
-		static literal_expression make_uint(unsigned int u) {
+		static literal_expression make_uint(uint32_t u) {
 			return literal_expression(kind_t::UINT, u);
 		}
-		static literal_expression make_int(int i) {
+		static literal_expression make_int(int32_t i) {
 			return literal_expression(kind_t::INT, i);
 		}
-		static literal_expression make_ulong(unsigned long ul) {
+		static literal_expression make_ulong(uint64_t ul) {
 			return literal_expression(kind_t::ULONG, ul);
 		}
-		static literal_expression make_long(long l) {
+		static literal_expression make_long(int64_t l) {
 			return literal_expression(kind_t::LONG, l);
 		}
 
@@ -469,10 +605,10 @@ struct std::formatter<
 				repr = std::to_string(std::get<int>(lit.value));
 				break;
 			case unqlang::analysis::expressions::literal_expression::kind_t::ULONG:
-				repr = std::to_string(std::get<unsigned long>(lit.value)) + "ul";
+				repr = std::to_string(std::get<uint64_t>(lit.value)) + "ul";
 				break;
 			case unqlang::analysis::expressions::literal_expression::kind_t::LONG:
-				repr = std::to_string(std::get<long>(lit.value)) + "l";
+				repr = std::to_string(std::get<int64_t>(lit.value)) + "l";
 				break;
 			case unqlang::analysis::expressions::literal_expression::kind_t::FLOAT:
 				repr = std::to_string(std::get<float>(lit.value)) + "f";

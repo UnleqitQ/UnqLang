@@ -129,6 +129,75 @@ namespace unqlang::compiler {
 		uint32_t statement_index
 	);
 
+	struct conditional_jump_info {
+		// True if the condition is a constant expression
+		bool constant_condition;
+		// If constant_condition is true, this is true if a jump will always be taken
+		// If constant_condition is true and this is false, the jump will never be taken
+		bool jump_always;
+		// True if the label for no jump is used
+		// That means, that a jump is done, but only to the end of the condition but not to the target label
+		bool skip_jump;
+		// True if the compile output needs to be inserted even if the condition is constant (side effects)
+		bool side_effects;
+
+		conditional_jump_info()
+			: constant_condition(false), jump_always(false), skip_jump(false), side_effects(false) {
+		}
+
+		conditional_jump_info& as_constant(bool always) {
+			constant_condition = true;
+			jump_always = always;
+			return *this;
+		}
+		conditional_jump_info& as_dynamic() {
+			constant_condition = false;
+			return *this;
+		}
+		conditional_jump_info& with_skip(bool skip) {
+			skip_jump = skip;
+			return *this;
+		}
+		conditional_jump_info& with_side_effects(bool side_eff) {
+			side_effects = side_eff;
+			return *this;
+		}
+	};
+
+	/**
+	 * Compiles a conditional jump based on the evaluation of a condition expression.
+	 * @param condition The condition expression to evaluate.
+	 * @param invert If true, the jump occurs when the condition is false; if false, the jump occurs when the condition is true.
+	 * @param target_label The label to jump to if the condition is met (or not met if invert is true).
+	 * @param no_jump_label A label to jump to if the condition is not met (or met if invert is true).
+	 * This can be used for example for short-circuit evaluation of logical AND/OR.
+	 * @param needs_skip If true, a jump to no_jump_label needs to be emitted if the condition is not met (or met if invert is true).
+	 * This is used for short-circuit evaluation of logical AND/OR.
+	 * If false, the jump to no_jump_label may be omitted depending on the condition.
+	 * @param context The current compilation context.
+	 * @param program The assembly program to append to.
+	 * @param current_scope The current assembly scope.
+	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
+	 * @param statement_index The index of the statement being compiled
+	 * @param label_prefix A prefix to use for generating unique labels within this conditional jump.
+	 * @return Information about the compiled conditional jump, including whether it was optimized to a constant jump.
+	 */
+	conditional_jump_info compile_conditional_jump(
+		const analysis::expressions::expression_node& condition,
+		bool invert,
+		const std::string& target_label,
+		const std::string& no_jump_label,
+		bool needs_skip,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		regmask& modified_regs,
+		uint32_t statement_index,
+		const std::string& label_prefix
+	);
+
 	/**
 	 * Compiles a block statement, which may contain multiple statements including variable declarations,
 	 * assignments, control flow statements, and nested blocks.
