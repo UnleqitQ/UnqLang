@@ -1,4 +1,6 @@
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <ranges>
 #include <typeinfo>
@@ -131,11 +133,11 @@ assembly::assembly_program_t parse_assembly(const std::string& source_code) {
 }
 
 int main() {
-	cmrc::embedded_filesystem fs = cmrc::builtin::get_filesystem();
+	cmrc::embedded_filesystem cmrc_fs = cmrc::builtin::get_filesystem();
 	std::string putc_asm;
 	std::string puti_asm;
 	try {
-		auto file = fs.open("builtin/putc.usm");
+		auto file = cmrc_fs.open("builtin/putc.usm");
 		putc_asm = std::string(file.begin(), file.end());
 	}
 	catch (const std::exception& e) {
@@ -143,46 +145,35 @@ int main() {
 		return 1;
 	}
 	try {
-		auto file = fs.open("builtin/puti.usm");
+		auto file = cmrc_fs.open("builtin/puti.usm");
 		puti_asm = std::string(file.begin(), file.end());
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error loading puti.usm: " << e.what() << std::endl;
 		return 1;
 	}
-	std::string source_code = R"(
-int multi_fibonacci(int n, int d, int e) {
-	if (n <= d) {
+
+	std::filesystem::path source_path = "../programs/multi_fibonacci.unq";
+	std::string source_code;
+	try {
+		if (!std::filesystem::exists(source_path)) {
+			std::cerr << "Source file does not exist: " << source_path << std::endl;
+			return 1;
+		}
+		std::ifstream source_file(source_path);
+		if (!source_file.is_open()) {
+			std::cerr << "Error opening source file: " << source_path << std::endl;
+			return 1;
+		}
+		source_code = std::string((std::istreambuf_iterator<char>(source_file)),
+			std::istreambuf_iterator<char>());
+		source_file.close();
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error reading source file: " << e.what() << std::endl;
 		return 1;
 	}
-	else {
-		int i = 0;
-		int result = 0;
-		while ((i < e) && (i + d < n)) {
-			result = result + multi_fibonacci(n - d - i, d, e);
-			++i;
-		}
-		return result;
-	}
-}
 
-int main() {
-	int n = 4;
-	int d = 1;
-	int e = 2;
-	int result = multi_fibonacci(n, d, e);
-	//puts("multi_fibonacci(");
-	puti(n);
-	//puts(", ");
-	puti(d);
-	//puts(", ");
-	puti(e);
-	//puts(") = ");
-	puti(result);
-	//puts("\n");
-	return 0;
-}
-)";
 	unqlang::ast_program program;
 	try {
 		build_ast(source_code, program);

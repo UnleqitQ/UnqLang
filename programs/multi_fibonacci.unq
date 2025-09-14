@@ -1,0 +1,31 @@
+int multi_fibonacci(int n, int d, int e) {
+	if (n <= d) {
+		return 1;
+	}
+	else {
+		int i = 0;
+		int result = 0;
+		while ((i < e) && (i + d < n)) {
+			result = result + multi_fibonacci(n - d - i, d, e);
+			++i;
+		}
+		return result;
+	}
+}
+
+int main() {
+	int n = 4;
+	int d = 1;
+	int e = 2;
+	int result = multi_fibonacci(n, d, e);
+	//puts("multi_fibonacci(");
+	puti(n);
+	//puts(", ");
+	puti(d);
+	//puts(", ");
+	puti(e);
+	//puts(") = ");
+	puti(result);
+	//puts("\n");
+	return 0;
+}
