@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 4.0)
 project(MiscMachine)
 
+include(CMakeRC.cmake)
+
 set(CMAKE_CXX_STANDARD 23)
 
 add_library(UnqLangLib
@@ -45,7 +47,16 @@ add_executable(MiscMachine_assembler
 	src/main_assembler.cpp
 )
 
+cmrc_add_resource_library(
+	BuiltinResources
+	NAMESPACE builtin
+	WHENCE res
+
+	res/builtin/puti.usm
+	res/builtin/putc.usm
+)
+
 target_link_libraries(MiscMachine MiscMachineLib UnqLangCompilerLib UnqLangLib)
-target_link_libraries(MiscMachine_compiler MiscMachineLib UnqLangCompilerLib UnqLangLib)
+target_link_libraries(MiscMachine_compiler MiscMachineLib UnqLangCompilerLib UnqLangLib BuiltinResources)
 target_link_libraries(MiscMachine_assembler MiscMachineLib)
 

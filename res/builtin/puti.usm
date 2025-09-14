@@ -1,0 +1,34 @@
+; UnqLang assembly for built-in function: puti
+; parameters: (int: stack 0/4 bytes)
+; returns: (void)
+    push ebp
+    mov ebp, esp
+    push eax
+    push ecx
+    push edx
+    mov eax, dword ptr [ebp + 8] ; Load the integer parameter
+    mov ecx, 0
+    cmp eax, 0
+    jge func_puti_loop
+    neg eax
+    out '-'
+func_puti_loop:
+    mov edx, eax
+    mod edx, 10
+    div eax, 10
+    inc ecx
+    push edx
+    cmp eax, 0
+    jnz func_puti_loop
+func_puti_print:
+    pop edx
+    add dl, '0'
+    out edx
+    dec ecx
+    jnz func_puti_print
+    pop edx
+    pop ecx
+    pop eax
+    mov esp, ebp
+    pop ebp
+    ret

@@ -3,10 +3,14 @@
 #include <ranges>
 #include <typeinfo>
 
+#include <cmrc/cmrc.hpp>
+
 #include "assembly/assembly_parser.hpp"
 #include "unqlang/lexer.hpp"
 #include "unqlang/ast.hpp"
 #include "unqlang/compiler/compiler.hpp"
+
+CMRC_DECLARE(builtin);
 
 void build_ast(const std::string& source_code, unqlang::ast_program& out_program) {
 	auto tokens = unqlang::run_lexer(source_code);
@@ -127,14 +131,25 @@ assembly::assembly_program_t parse_assembly(const std::string& source_code) {
 }
 
 int main() {
-	std::string putc_asm = R"(
-out byte ptr [esp + 4]
-ret
-)";
-	std::string puti_asm = R"(
-out dword ptr [esp + 4]
-ret
-)";
+	cmrc::embedded_filesystem fs = cmrc::builtin::get_filesystem();
+	std::string putc_asm;
+	std::string puti_asm;
+	try {
+		auto file = fs.open("builtin/putc.usm");
+		putc_asm = std::string(file.begin(), file.end());
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error loading putc.usm: " << e.what() << std::endl;
+		return 1;
+	}
+	try {
+		auto file = fs.open("builtin/puti.usm");
+		puti_asm = std::string(file.begin(), file.end());
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error loading puti.usm: " << e.what() << std::endl;
+		return 1;
+	}
 	std::string source_code = R"(
 int multi_fibonacci(int n, int d, int e) {
 	if (n <= d) {

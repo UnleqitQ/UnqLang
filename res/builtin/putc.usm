@@ -1,0 +1,5 @@
+; UnqLang assembly for built-in function: putc
+; parameters: (char: stack 0/1 byte)
+; returns: (void)
+out byte ptr [esp + 0x4]
+ret
