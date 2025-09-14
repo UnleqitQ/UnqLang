@@ -1022,6 +1022,13 @@ namespace unqlang::compiler {
 		));
 		// insert the temp program now
 		program.insert(program.end(), temp_program.begin(), temp_program.end());
+		// zero-extend target_reg to target size
+		if (target_reg.access != machine::register_access::low_byte)
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::MOVZX,
+				assembly::assembly_result(target_reg),
+				assembly::assembly_operand(bool_reg)
+			));
 		// restore tmp_reg if needed
 		if (tmp_is_used) {
 			program.push_back(assembly::assembly_instruction(
