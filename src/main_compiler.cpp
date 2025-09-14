@@ -3,6 +3,7 @@
 #include <ranges>
 #include <typeinfo>
 
+#include "assembly/assembly_parser.hpp"
 #include "unqlang/lexer.hpp"
 #include "unqlang/ast.hpp"
 #include "unqlang/compiler/compiler.hpp"
@@ -110,7 +111,30 @@ void print_asm_scope(const unqlang::compiler::assembly_scope& scp, int indent = 
 	}
 }
 
+assembly::assembly_program_t parse_assembly(const std::string& source_code) {
+	std::vector<assembly::assembly_token> assembly_tokens = assembly::run_lexer(source_code);
+
+	// Clean up tokens: remove comments and join newlines
+	assembly::remove_comments(assembly_tokens);
+	std::vector<assembly::assembly_token> cleaned_tokens;
+	assembly::join_newlines(assembly_tokens, cleaned_tokens);
+	assembly_tokens = cleaned_tokens;
+
+	std::vector<assembly::assembly_parse_component> assembly_components = assembly::run_component_parser(assembly_tokens);
+
+	assembly::assembly_program_t assembly_program = assembly::run_parser(assembly_components);
+	return assembly_program;
+}
+
 int main() {
+	std::string putc_asm = R"(
+out byte ptr [esp + 4]
+ret
+)";
+	std::string puti_asm = R"(
+out dword ptr [esp + 4]
+ret
+)";
 	std::string source_code = R"(
 int multi_fibonacci(int n, int d, int e) {
 	if (n <= d) {
@@ -127,17 +151,20 @@ int multi_fibonacci(int n, int d, int e) {
 	}
 }
 
-int main(int n, int d, int e) {
+int main() {
+	int n = 4;
+	int d = 1;
+	int e = 2;
 	int result = multi_fibonacci(n, d, e);
-	puts("multi_fibonacci(");
+	//puts("multi_fibonacci(");
 	puti(n);
-	puts(", ");
+	//puts(", ");
 	puti(d);
-	puts(", ");
+	//puts(", ");
 	puti(e);
-	puts(") = ");
+	//puts(") = ");
 	puti(result);
-	puts("\n");
+	//puts("\n");
 	return 0;
 }
 )";
@@ -165,7 +192,19 @@ int main(int n, int d, int e) {
 	unqlang::ast_statement_function_declaration multi_fib_decl =
 		std::get<unqlang::ast_statement_function_declaration>(program.body[0]);
 	assembly::assembly_program_t asm_program;
-	try {
+	compilr.register_built_in_function(
+		unqlang::analysis::functions::function_info("putc",
+			unqlang::analysis::types::primitive_type::VOID,
+			{unqlang::analysis::types::primitive_type::CHAR}
+		), parse_assembly(putc_asm)
+	);
+	compilr.register_built_in_function(
+		unqlang::analysis::functions::function_info("puti",
+			unqlang::analysis::types::primitive_type::VOID,
+			{unqlang::analysis::types::primitive_type::INT}
+		), parse_assembly(puti_asm)
+	);
+	/*try {
 		compilr.compile_function(multi_fib_decl, asm_program);
 	}
 	catch (const std::exception& e) {
@@ -174,6 +213,18 @@ int main(int n, int d, int e) {
 	}
 	std::cout << "Assembly program after compiling multi_fibonacci:" << std::endl;
 	for (const auto& instr : asm_program) {
+		std::cout << instr << std::endl;
+	}*/
+	assembly::assembly_program_t full_program;
+	try {
+		full_program = compilr.compile("main");
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error compiling entry function: " << e.what() << std::endl;
+		return 1;
+	}
+	std::cout << "Full assembly program after compiling entry function 'main':" << std::endl;
+	for (const auto& instr : full_program) {
 		std::cout << instr << std::endl;
 	}
 	return 0;
