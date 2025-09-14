@@ -35,6 +35,45 @@ namespace machine {
 		return (value & 1) == 0;
 	}
 
+	operation set_flag_to_jump(operation op) {
+		switch (op) {
+			case operation::SETZ:
+				return operation::JZ;
+			case operation::SETNZ:
+				return operation::JNZ;
+			case operation::SETC:
+				return operation::JC;
+			case operation::SETNC:
+				return operation::JNC;
+			case operation::SETO:
+				return operation::JO;
+			case operation::SETNO:
+				return operation::JNO;
+			case operation::SETS:
+				return operation::JS;
+			case operation::SETNS:
+				return operation::JNS;
+			case operation::SETL:
+				return operation::JL;
+			case operation::SETLE:
+				return operation::JLE;
+			case operation::SETG:
+				return operation::JG;
+			case operation::SETGE:
+				return operation::JGE;
+			case operation::SETB:
+				return operation::JB;
+			case operation::SETBE:
+				return operation::JBE;
+			case operation::SETA:
+				return operation::JA;
+			case operation::SETAE:
+				return operation::JAE;
+			default:
+				throw std::runtime_error("Invalid set operation");
+		}
+	}
+
 	bool check_jump_condition(operation op, const register_file& regs) {
 		switch (op) {
 			case operation::JMP:
@@ -454,6 +493,18 @@ namespace machine {
 		return res32;
 	}
 
+	data_size_t get_operand_size(const operand_arg& op) {
+		switch (op.type) {
+			case operand_arg::type_t::REGISTER:
+				return get_size_from_access(op.value.reg.access);
+			case operand_arg::type_t::IMMEDIATE:
+				return data_size_t::DWORD; // Immediate values are treated as DWORDs
+			case operand_arg::type_t::MEMORY:
+				return op.value.mem.size;
+			default:
+				throw std::runtime_error("Invalid result type");
+		}
+	}
 	data_size_t get_result_size(const result_arg& res) {
 		switch (res.type) {
 			case result_arg::type_t::REGISTER:
@@ -569,6 +620,65 @@ namespace machine {
 				const auto args = instr.args.args_1r;
 				uint32_t value = retrieve_operand_value(args.operands[0]);
 				set_result_value(args.result, value);
+				break;
+			}
+			case operation::MOVZX: {
+				const auto args = instr.args.args_1r;
+				uint32_t value = retrieve_operand_value(args.operands[0]);
+				data_size_t dest_size = get_result_size(args.result);
+				switch (dest_size) {
+					case data_size_t::BYTE:
+						value &= 0xFF;
+						break;
+					case data_size_t::WORD:
+						value &= 0xFFFF;
+						break;
+					case data_size_t::DWORD:
+						// No change needed
+						break;
+					default:
+						throw std::runtime_error("Invalid destination size for MOVZX");
+				}
+				set_result_value(args.result, value);
+				break;
+			}
+			case operation::MOVSX: {
+				const auto args = instr.args.args_1r;
+				uint32_t value = retrieve_operand_value(args.operands[0]);
+				data_size_t dest_size = get_result_size(args.result);
+				bool sign;
+				uint32_t unsigned_value;
+				switch (get_operand_size(args.operands[0])) {
+					case data_size_t::BYTE:
+						sign = (value & 0x80) != 0;
+						unsigned_value = value & 0x7F;
+						break;
+					case data_size_t::WORD:
+						sign = (value & 0x8000) != 0;
+						unsigned_value = value & 0x7FFF;
+						break;
+					case data_size_t::DWORD:
+						sign = (value & 0x80000000) != 0;
+						unsigned_value = value & 0x7FFFFFFF;
+						break;
+					default:
+						throw std::runtime_error("Invalid source size for MOVSX");
+				}
+				uint32_t extended_value;
+				switch (dest_size) {
+					case data_size_t::BYTE:
+						extended_value = unsigned_value | (sign ? 0x80 : 0);
+						break;
+					case data_size_t::WORD:
+						extended_value = unsigned_value | (sign ? 0x8000 : 0);
+						break;
+					case data_size_t::DWORD:
+						extended_value = unsigned_value | (sign ? 0x80000000 : 0);
+						break;
+					default:
+						throw std::runtime_error("Invalid destination size for MOVSX");
+				}
+				set_result_value(args.result, extended_value);
 				break;
 			}
 			case operation::ADC:
@@ -875,10 +985,24 @@ namespace machine {
 				m_state = execution_state_t::HALTED;
 				break;
 			case operation::SETZ:
-			case operation::SETNZ: {
+			case operation::SETNZ:
+			case operation::SETC:
+			case operation::SETNC:
+			case operation::SETO:
+			case operation::SETNO:
+			case operation::SETS:
+			case operation::SETNS:
+			case operation::SETL:
+			case operation::SETLE:
+			case operation::SETG:
+			case operation::SETGE:
+			case operation::SETB:
+			case operation::SETBE:
+			case operation::SETA:
+			case operation::SETAE: {
 				const auto args = instr.args.args_0r;
 				bool condition_met =
-					check_jump_condition(instr.op == operation::SETZ ? operation::JZ : operation::JNZ, m_registers);
+					check_jump_condition(set_flag_to_jump(instr.op), m_registers);
 				set_result_value(args.result, condition_met ? 1 : 0);
 				break;
 			}
@@ -899,7 +1023,8 @@ namespace machine {
 		if (!jump_occurred) {
 			m_registers.eip = next_ip;
 		}
-		std::cout << std::endl;
+		if (m_verbose)
+			std::cout << std::endl;
 	}
 
 	void print_registers(const register_file& regs) {

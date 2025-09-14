@@ -18,14 +18,26 @@ int main() {
 	int d = 1;
 	int e = 2;
 	int result = multi_fibonacci(n, d, e);
+	putc('n');
+	putc('=');
 	//puts("multi_fibonacci(");
 	puti(n);
+	putc('\n');
 	//puts(", ");
+	putc('d');
+    putc('=');
 	puti(d);
+	putc('\n');
 	//puts(", ");
+	putc('e');
+    putc('=');
 	puti(e);
+	putc('\n');
 	//puts(") = ");
+	putc('r');
+    putc('=');
 	puti(result);
+	putc('\n');
 	//puts("\n");
 	return 0;
 }

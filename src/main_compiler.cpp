@@ -8,6 +8,7 @@
 #include <cmrc/cmrc.hpp>
 
 #include "assembly/assembly_parser.hpp"
+#include "machine/computer.hpp"
 #include "unqlang/lexer.hpp"
 #include "unqlang/ast.hpp"
 #include "unqlang/compiler/compiler.hpp"
@@ -153,7 +154,7 @@ int main() {
 		return 1;
 	}
 
-	std::filesystem::path source_path = "../programs/multi_fibonacci.unq";
+	std::filesystem::path source_path = "../programs/factorial.unq";
 	std::string source_code;
 	try {
 		if (!std::filesystem::exists(source_path)) {
@@ -182,22 +183,11 @@ int main() {
 		std::cerr << "Error building AST: " << e.what() << std::endl;
 		return 1;
 	}
-	program.print();
 
 	std::cout << std::endl << "AST built successfully." << std::endl << std::endl;
-	std::cout << std::string(80, '=') << std::endl << std::endl;
 
 	unqlang::compiler::Compiler compilr;
 	compilr.analyze_program(program);
-	/*auto func_scope = compilr.
-		build_function_scope(std::get<unqlang::ast_statement_function_declaration>(program.body[0]));
-	print_scope(*func_scope);
-	std::cout << std::string(80, '=') << std::endl << std::endl;
-	auto asm_scope = compilr.build_function_assembly_scope(func_scope);
-	print_asm_scope(*asm_scope);*/
-	unqlang::ast_statement_function_declaration multi_fib_decl =
-		std::get<unqlang::ast_statement_function_declaration>(program.body[0]);
-	assembly::assembly_program_t asm_program;
 	compilr.register_built_in_function(
 		unqlang::analysis::functions::function_info("putc",
 			unqlang::analysis::types::primitive_type::VOID,
@@ -210,17 +200,6 @@ int main() {
 			{unqlang::analysis::types::primitive_type::INT}
 		), parse_assembly(puti_asm)
 	);
-	/*try {
-		compilr.compile_function(multi_fib_decl, asm_program);
-	}
-	catch (const std::exception& e) {
-		std::cerr << "Error compiling function: " << e.what() << std::endl;
-		return 1;
-	}
-	std::cout << "Assembly program after compiling multi_fibonacci:" << std::endl;
-	for (const auto& instr : asm_program) {
-		std::cout << instr << std::endl;
-	}*/
 	assembly::assembly_program_t full_program;
 	try {
 		full_program = compilr.compile("main");
@@ -232,6 +211,38 @@ int main() {
 	std::cout << "Full assembly program after compiling entry function 'main':" << std::endl;
 	for (const auto& instr : full_program) {
 		std::cout << instr << std::endl;
+	}
+	std::cout << std::endl;
+	std::cout << std::string(80, '=') << std::endl;
+	std::cout << "Assembling and running program..." << std::endl;
+	std::cout << std::endl;
+
+	machine::computer computr;
+	uint32_t program_start_address = machine::ram::SIZE / 3;
+	machine::program_t machine_program;
+	try {
+		machine_program = assembly::assemble(
+			full_program, true, program_start_address
+		);
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error assembling program: " << e.what() << std::endl;
+		return 1;
+	}
+	try {
+		computr.load_program(machine_program, program_start_address);
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error loading program into computer: " << e.what() << std::endl;
+		return 1;
+	}
+	computr.set_verbose(true);
+	try {
+		computr.run();
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error during execution: " << e.what() << std::endl;
+		return 1;
 	}
 	return 0;
 }
