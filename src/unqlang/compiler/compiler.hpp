@@ -31,6 +31,7 @@ namespace unqlang::compiler {
 	 * @param program The assembly program to append to.
 	 * @param current_scope The current assembly scope.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param statement_index The index of the statement being compiled
 	 */
 	void compile_assignment(
@@ -52,6 +53,7 @@ namespace unqlang::compiler {
 	 * @param program The assembly program to append to (if needed, may not be the case).
 	 * @param current_scope The current assembly scope.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param statement_index The index of the statement being compiled
 	 * @return The memory location of the reference.
 	 */
@@ -87,6 +89,7 @@ namespace unqlang::compiler {
 	 * @param current_scope The current assembly scope.
 	 * @param target_reg The register to store the result in.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param statement_index The index of the statement being compiled
 	 * @param store_value Whether to store the computed value in the target register. If false, the expression is evaluated but the result may not be stored.
 	 */
@@ -110,6 +113,7 @@ namespace unqlang::compiler {
 	 * @param current_scope The current assembly scope.
 	 * @param target_reg The register to store the result in.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param dest_type The expected type of the pointer's pointee.
 	 * @param statement_index The index of the statement being compiled
 	 */
@@ -133,6 +137,7 @@ namespace unqlang::compiler {
 	 * @param program The assembly program to append to.
 	 * @param current_scope The current assembly scope.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param label_prefix A prefix to use for generating unique labels within this block.
 	 */
 	void compile_block_statement(
@@ -152,6 +157,7 @@ namespace unqlang::compiler {
 	 * @param program The assembly program to append to.
 	 * @param current_scope The current assembly scope.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param statement_index The index of the statement being compiled
 	 * @param label_prefix A prefix to use for generating unique labels within this declaration.
 	 */
@@ -173,6 +179,7 @@ namespace unqlang::compiler {
 	 * @param program The assembly program to append to.
 	 * @param current_scope The current assembly scope.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param statement_index The index of the statement being compiled,
 	 * @param label_prefix A prefix to use for generating unique labels within this if statement.
 	 */
@@ -194,6 +201,7 @@ namespace unqlang::compiler {
 	 * @param program The assembly program to append to.
 	 * @param current_scope The current assembly scope.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param statement_index The index of the statement being compiled
 	 * @param label_prefix A prefix to use for generating unique labels within this while statement.
 	 */
@@ -215,6 +223,7 @@ namespace unqlang::compiler {
 	 * @param program The assembly program to append to.
 	 * @param current_scope The current assembly scope.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param statement_index The index of the statement being compiled
 	 * @param label_prefix A prefix to use for generating unique labels within this return statement.
 	 */
@@ -236,6 +245,7 @@ namespace unqlang::compiler {
 	 * @param program The assembly program to append to.
 	 * @param current_scope The current assembly scope.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param statement_index The index of the statement being compiled
 	 * @param label_prefix A prefix to use for generating unique labels within this expression statement.
 	 */
@@ -257,6 +267,7 @@ namespace unqlang::compiler {
 	 * @param program The assembly program to append to.
 	 * @param current_scope The current assembly scope.
 	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param statement_index The index of the statement being compiled
 	 * @param label_prefix A prefix to use for generating unique labels within this statement.
 	 */
