@@ -2537,6 +2537,7 @@ namespace unqlang::compiler {
 				machine::register_id::edx, machine::register_id::ecx,
 			}
 		);
+		bool all_return = true;
 		bool cond_was_used = used_regs.get(cond_reg);
 		if (cond_was_used) {
 			program.push_back(assembly::assembly_instruction(
@@ -2590,8 +2591,10 @@ namespace unqlang::compiler {
 				clause.body, child_context, program, *child_scope.child,
 				used_regs, label_prefix + "if" + std::to_string(statement_index) + "_c" + std::to_string(i) + "_"
 			);
+			bool clause_returns = child_scope.child->all_paths_return;
+			all_return &= clause_returns;
 			// jump to the end
-			if (!is_last_clause) {
+			if (!is_last_clause && !clause_returns) {
 				program.push_back(assembly::assembly_instruction(
 					machine::operation::JMP,
 					assembly::assembly_operand{end_label}
@@ -2602,8 +2605,10 @@ namespace unqlang::compiler {
 				program.emplace_back(next_label);
 			}
 		}
-		// end label
-		program.emplace_back(end_label);
+		if (!all_return) {
+			// end label
+			program.emplace_back(end_label);
+		}
 		// restore condition register if needed
 		if (cond_was_used) {
 			program.push_back(assembly::assembly_instruction(
