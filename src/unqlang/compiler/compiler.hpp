@@ -41,6 +41,7 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		regmask used_regs,
+		regmask& modified_regs,
 		uint32_t statement_index
 	);
 
@@ -61,6 +62,7 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		regmask used_regs,
+		regmask& modified_regs,
 		uint32_t statement_index
 	);
 
@@ -71,6 +73,7 @@ namespace unqlang::compiler {
 		assembly_scope& current_scope,
 		machine::register_t target_reg,
 		regmask used_regs,
+		regmask& modified_regs,
 		analysis::types::type_node left_type,
 		analysis::types::type_node right_type,
 		uint32_t statement_index
@@ -94,6 +97,7 @@ namespace unqlang::compiler {
 		assembly_scope& current_scope,
 		machine::register_t target_reg,
 		regmask used_regs,
+		regmask& modified_regs,
 		uint32_t statement_index,
 		bool store_value = true
 	);
@@ -116,6 +120,7 @@ namespace unqlang::compiler {
 		assembly_scope& current_scope,
 		machine::register_t target_reg,
 		regmask used_regs,
+		regmask& modified_regs,
 		const analysis::types::type_node& dest_type,
 		uint32_t statement_index
 	);
@@ -136,6 +141,7 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		regmask used_regs,
+		regmask& modified_regs,
 		std::string label_prefix
 	);
 
@@ -155,6 +161,7 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		regmask used_regs,
+		regmask& modified_regs,
 		uint32_t statement_index,
 		std::string label_prefix
 	);
@@ -175,6 +182,7 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		regmask used_regs,
+		regmask& modified_regs,
 		uint32_t statement_index,
 		std::string label_prefix
 	);
@@ -195,6 +203,7 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		regmask used_regs,
+		regmask& modified_regs,
 		uint32_t statement_index,
 		std::string label_prefix
 	);
@@ -215,6 +224,7 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		regmask used_regs,
+		regmask& modified_regs,
 		uint32_t statement_index,
 		std::string label_prefix
 	);
@@ -235,6 +245,7 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		regmask used_regs,
+		regmask& modified_regs,
 		uint32_t statement_index,
 		std::string label_prefix
 	);
@@ -255,6 +266,7 @@ namespace unqlang::compiler {
 		assembly::assembly_program_t& program,
 		assembly_scope& current_scope,
 		regmask used_regs,
+		regmask& modified_regs,
 		uint32_t statement_index,
 		std::string label_prefix
 	);

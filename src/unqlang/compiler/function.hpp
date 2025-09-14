@@ -23,6 +23,7 @@ namespace unqlang::compiler {
 		}
 	};
 	struct function_signature {
+		std::optional<std::string> name; // optional name of the function
 		analysis::types::type_node return_type;
 		std::vector<parameter_info> parameters;
 		bool is_variadic = false; // true if function is variadic (e.g., printf)
@@ -59,6 +60,7 @@ namespace unqlang::compiler {
 	};
 
 	struct assembly_function_signature {
+		std::optional<std::string> name; // optional name of the function
 		// the stack region for parameters is reused for the return value
 		// this means the region must also be large enough to hold the return value
 		analysis::types::type_node return_type;

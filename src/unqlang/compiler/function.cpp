@@ -5,6 +5,7 @@ namespace unqlang::compiler {
 		const analysis::types::type_system& type_system
 	) const {
 		auto asm_sig = std::make_shared<assembly_function_signature>();
+		asm_sig->name = name;
 		asm_sig->return_type = return_type;
 		asm_sig->is_variadic = is_variadic;
 		asm_sig->parameters.reserve(parameters.size());
