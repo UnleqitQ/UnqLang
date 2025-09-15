@@ -1,5 +1,7 @@
 #include "expressions.hpp"
 
+#define DBG 0
+
 namespace unqlang::analysis::expressions {
 	literal_expression literal_expression::from_ast(const ast_expression_literal& ast_lit) {
 		switch (ast_lit.type) {
@@ -60,6 +62,13 @@ namespace unqlang::analysis::expressions {
 			return false;
 		}
 		return true;
+	}
+	binary_expression binary_expression::from_ast(const ast_expression_binary& ast_bin) {
+		return binary_expression(
+			op_from_ast(ast_bin.type),
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_bin.left)),
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_bin.right))
+		);
 	}
 	ast_expression_binary::type_t op_to_ast(binary_expression::operator_t op) {
 		switch (op) {
@@ -152,13 +161,6 @@ namespace unqlang::analysis::expressions {
 				throw std::runtime_error("Comma operator is not a valid binary operator in this context");
 		}
 		throw std::runtime_error("Unknown AST binary operator");
-	}
-	binary_expression binary_expression::from_ast(const ast_expression_binary& ast_bin) {
-		return binary_expression(
-			op_from_ast(ast_bin.type),
-			std::make_shared<expression_node>(expression_node::from_ast(*ast_bin.left)),
-			std::make_shared<expression_node>(expression_node::from_ast(*ast_bin.right))
-		);
 	}
 
 	types::type_node unary_expression::get_type(
@@ -266,7 +268,7 @@ namespace unqlang::analysis::expressions {
 			func_type = std::get<types::function_type>(callee_type.value);
 		}
 		else if (func_storage.is_function_declared(
-						std::get<identifier_expression>(callee->value).name)) {
+			std::get<identifier_expression>(callee->value).name)) {
 			auto func_info = func_storage.get_function(
 				std::get<identifier_expression>(callee->value).name
 			);
@@ -467,5 +469,554 @@ namespace unqlang::analysis::expressions {
 				throw std::runtime_error("Cannot convert unknown AST expression to analysis expression");
 		}
 		throw std::runtime_error("Unknown AST expression kind");
+	}
+	bool has_side_effects(const expression_node& expr) {
+		switch (expr.kind) {
+			case expression_node::kind_t::LITERAL:
+			case expression_node::kind_t::IDENTIFIER:
+				return false;
+			case expression_node::kind_t::BINARY: {
+				auto bin = std::get<binary_expression>(expr.value);
+				if (bin.left == nullptr || bin.right == nullptr) {
+					throw std::runtime_error("Binary expression missing operand");
+				}
+				// assignment and array subscript have side effects
+				if (bin.op == binary_expression::operator_t::ASSIGN ||
+					bin.op == binary_expression::operator_t::ARRAY_SUBSCRIPT) {
+					return true;
+				}
+				return has_side_effects(*bin.left) || has_side_effects(*bin.right);
+			}
+			case expression_node::kind_t::UNARY: {
+				auto un = std::get<unary_expression>(expr.value);
+				if (un.operand == nullptr) {
+					throw std::runtime_error("Unary expression missing operand");
+				}
+				// increment and decrement have side effects
+				if (un.op == unary_expression::operator_t::PRE_INC ||
+					un.op == unary_expression::operator_t::PRE_DEC ||
+					un.op == unary_expression::operator_t::POST_INC ||
+					un.op == unary_expression::operator_t::POST_DEC) {
+					return true;
+				}
+				return has_side_effects(*un.operand);
+			}
+			case expression_node::kind_t::CALL:
+				// function calls have side effects
+				return true;
+			case expression_node::kind_t::MEMBER: {
+				auto mem = std::get<member_expression>(expr.value);
+				if (mem.object == nullptr) {
+					throw std::runtime_error("Member expression missing object");
+				}
+				return has_side_effects(*mem.object);
+			}
+			case expression_node::kind_t::TERNARY: {
+				auto ter = std::get<ternary_expression>(expr.value);
+				if (ter.condition == nullptr || ter.then_branch == nullptr || ter.else_branch == nullptr) {
+					throw std::runtime_error("Ternary expression missing branch");
+				}
+				return has_side_effects(*ter.condition) ||
+					has_side_effects(*ter.then_branch) ||
+					has_side_effects(*ter.else_branch);
+			}
+			case expression_node::kind_t::UNKNOWN:
+				throw std::runtime_error("Cannot determine side effects of unknown expression");
+		}
+		throw std::runtime_error("Unknown expression type");
+	}
+	expression_node optimize_unary_expression(
+		const unary_expression& un
+	) {
+		auto operand = *un.operand;
+		switch (un.op) {
+			case unary_expression::operator_t::ADDRESS_OF: {
+				// &*x  -> x
+				if (operand.kind == expression_node::kind_t::UNARY) {
+					auto inner_un = std::get<unary_expression>(operand.value);
+					if (inner_un.op == unary_expression::operator_t::DEREFERENCE) {
+						if (inner_un.operand == nullptr) {
+							throw std::runtime_error("Unary expression missing operand");
+						}
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized &*x to x ({})\n", un);
+						}
+						return *inner_un.operand;
+					}
+				}
+				break;
+			}
+			case unary_expression::operator_t::DEREFERENCE: {
+				// *&x  -> x
+				if (operand.kind == expression_node::kind_t::UNARY) {
+					auto inner_un = std::get<unary_expression>(operand.value);
+					if (inner_un.op == unary_expression::operator_t::ADDRESS_OF) {
+						if (inner_un.operand == nullptr) {
+							throw std::runtime_error("Unary expression missing operand");
+						}
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized *&x to x ({})\n", un);
+						}
+						return *inner_un.operand;
+					}
+				}
+				break;
+			}
+			case unary_expression::operator_t::PLUS: {
+				// +x  -> x
+				return operand;
+			}
+			case unary_expression::operator_t::MINUS: {
+				// -(-x)  -> x
+				// -(~x)  -> x + 1
+				if (operand.kind == expression_node::kind_t::UNARY) {
+					auto inner_un = std::get<unary_expression>(operand.value);
+					if (inner_un.op == unary_expression::operator_t::MINUS) {
+						if (inner_un.operand == nullptr) {
+							throw std::runtime_error("Unary expression missing operand");
+						}
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized -(-x) to x ({})\n", un);
+						}
+						return *inner_un.operand;
+					}
+					if (inner_un.op == unary_expression::operator_t::NOT) {
+						if (inner_un.operand == nullptr) {
+							throw std::runtime_error("Unary expression missing operand");
+						}
+						// -(~x)  -> x + 1
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized -(~x) to x + 1 ({})\n", un);
+						}
+						return make_binary(
+							binary_expression::operator_t::ADD,
+							*inner_un.operand,
+							make_literal(literal_expression(
+								literal_expression::kind_t::INT,
+								1
+							))
+						);
+					}
+				}
+				// -(const)  -> const (if const is numeric)
+				if (operand.kind == expression_node::kind_t::LITERAL) {
+					auto lit = std::get<literal_expression>(operand.value);
+					if (lit.kind == literal_expression::kind_t::INT) {
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized -(const) to const ({})\n", un);
+						}
+						return make_literal(literal_expression(
+							literal_expression::kind_t::INT,
+							-(std::get<int32_t>(lit.value))
+						));
+					}
+					if (lit.kind == literal_expression::kind_t::CHAR) {
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized -(const) to const ({})\n", un);
+						}
+						return make_literal(literal_expression(
+							literal_expression::kind_t::CHAR,
+							-(std::get<char>(lit.value))
+						));
+					}
+					if (lit.kind == literal_expression::kind_t::BOOL) {
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized -(const) to const ({})\n", un);
+						}
+						return make_literal(literal_expression(
+							literal_expression::kind_t::INT,
+							-(std::get<bool>(lit.value) ? 1 : 0)
+						));
+					}
+				}
+				break;
+			}
+			case unary_expression::operator_t::NOT: {
+				// ~(-x)  -> -(x + 1)
+				if (operand.kind == expression_node::kind_t::UNARY) {
+					auto inner_un = std::get<unary_expression>(operand.value);
+					if (inner_un.op == unary_expression::operator_t::MINUS) {
+						if (inner_un.operand == nullptr) {
+							throw std::runtime_error("Unary expression missing operand");
+						}
+						// ~(-x)  -> -(x + 1)
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized ~(-x) to -(x + 1) ({})\n", un);
+						}
+						return make_binary(
+							binary_expression::operator_t::SUB,
+							make_literal(literal_expression(
+								literal_expression::kind_t::INT,
+								-1
+							)),
+							*inner_un.operand
+						);
+					}
+				}
+				// ~(const)  -> const (if const is integer)
+				if (operand.kind == expression_node::kind_t::LITERAL) {
+					auto lit = std::get<literal_expression>(operand.value);
+					if (lit.kind == literal_expression::kind_t::INT) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::INT,
+							~(std::get<int32_t>(lit.value))
+						));
+					}
+					if (lit.kind == literal_expression::kind_t::CHAR) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::CHAR,
+							~(std::get<char>(lit.value))
+						));
+					}
+					if (lit.kind == literal_expression::kind_t::UINT) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::UINT,
+							~(std::get<uint32_t>(lit.value))
+						));
+					}
+					if (lit.kind == literal_expression::kind_t::LONG) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::LONG,
+							~(std::get<int64_t>(lit.value))
+						));
+					}
+					if (lit.kind == literal_expression::kind_t::ULONG) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::ULONG,
+							~(std::get<uint64_t>(lit.value))
+						));
+					}
+				}
+				break;
+			}
+			case unary_expression::operator_t::LNOT: {
+				// !(!x)  -> x
+				if (operand.kind == expression_node::kind_t::UNARY) {
+					auto inner_un = std::get<unary_expression>(operand.value);
+					if (inner_un.op == unary_expression::operator_t::LNOT) {
+						if (inner_un.operand == nullptr) {
+							throw std::runtime_error("Unary expression missing operand");
+						}
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized !(!x) to x ({})\n", un);
+						}
+						return *inner_un.operand;
+					}
+				}
+				// !(const)  -> const
+				if (operand.kind == expression_node::kind_t::LITERAL) {
+					auto lit = std::get<literal_expression>(operand.value);
+					bool truthy = lit.get_truthiness();
+					if constexpr (DBG) {
+						std::cout << std::format("Optimized !(const) to const ({})\n", un);
+					}
+					return make_literal(literal_expression(
+						literal_expression::kind_t::BOOL,
+						!truthy
+					));
+				}
+				break;
+			}
+		}
+		return make_unary(un.op, operand);
+	}
+	expression_node optimize_binary_expression(
+		const binary_expression& bin
+	) {
+		auto left = *bin.left;
+		auto right = *bin.right;
+		switch (bin.op) {
+			case binary_expression::operator_t::ADD: {
+				// x + 0  -> x
+				if (right.kind == expression_node::kind_t::LITERAL) {
+					auto lit = std::get<literal_expression>(right.value);
+					if (lit.kind == literal_expression::kind_t::INT &&
+						std::get<int32_t>(lit.value) == 0) {
+						return left;
+					}
+					if (lit.kind == literal_expression::kind_t::CHAR &&
+						std::get<char>(lit.value) == 0) {
+						return left;
+					}
+					if (lit.kind == literal_expression::kind_t::BOOL &&
+						std::get<bool>(lit.value) == false) {
+						return left;
+					}
+				}
+				// 0 + x  -> x
+				if (left.kind == expression_node::kind_t::LITERAL) {
+					auto lit = std::get<literal_expression>(left.value);
+					if (lit.kind == literal_expression::kind_t::INT &&
+						std::get<int32_t>(lit.value) == 0) {
+						return right;
+					}
+					if (lit.kind == literal_expression::kind_t::CHAR &&
+						std::get<char>(lit.value) == 0) {
+						return right;
+					}
+					if (lit.kind == literal_expression::kind_t::BOOL &&
+						std::get<bool>(lit.value) == false) {
+						return right;
+					}
+				}
+				// const + const  -> const
+				if (left.kind == expression_node::kind_t::LITERAL &&
+					right.kind == expression_node::kind_t::LITERAL) {
+					auto left_lit = std::get<literal_expression>(left.value);
+					auto right_lit = std::get<literal_expression>(right.value);
+					if (left_lit.kind == literal_expression::kind_t::INT &&
+						right_lit.kind == literal_expression::kind_t::INT) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::INT,
+							std::get<int32_t>(left_lit.value) + std::get<int32_t>(right_lit.value)
+						));
+					}
+					if (left_lit.kind == literal_expression::kind_t::CHAR &&
+						right_lit.kind == literal_expression::kind_t::CHAR) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::CHAR,
+							std::get<char>(left_lit.value) + std::get<char>(right_lit.value)
+						));
+					}
+					if (left_lit.kind == literal_expression::kind_t::UINT &&
+						right_lit.kind == literal_expression::kind_t::UINT) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::UINT,
+							std::get<uint32_t>(left_lit.value) + std::get<uint32_t>(right_lit.value)
+						));
+					}
+					if (left_lit.kind == literal_expression::kind_t::LONG &&
+						right_lit.kind == literal_expression::kind_t::LONG) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::LONG,
+							std::get<int64_t>(left_lit.value) + std::get<int64_t>(right_lit.value)
+						));
+					}
+					if (left_lit.kind == literal_expression::kind_t::ULONG &&
+						right_lit.kind == literal_expression::kind_t::ULONG) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::ULONG,
+							std::get<uint64_t>(left_lit.value) + std::get<uint64_t>(right_lit.value)
+						));
+					}
+				}
+				break;
+			}
+			case binary_expression::operator_t::SUB: {
+				// x - 0  -> x
+				if (right.kind == expression_node::kind_t::LITERAL) {
+					auto lit = std::get<literal_expression>(right.value);
+					if (lit.kind == literal_expression::kind_t::INT &&
+						std::get<int32_t>(lit.value) == 0) {
+						return left;
+					}
+					if (lit.kind == literal_expression::kind_t::CHAR &&
+						std::get<char>(lit.value) == 0) {
+						return left;
+					}
+					if (lit.kind == literal_expression::kind_t::BOOL &&
+						std::get<bool>(lit.value) == false) {
+						return left;
+					}
+				}
+				// const - const  -> const
+				if (left.kind == expression_node::kind_t::LITERAL &&
+					right.kind == expression_node::kind_t::LITERAL) {
+					auto left_lit = std::get<literal_expression>(left.value);
+					auto right_lit = std::get<literal_expression>(right.value);
+					if (left_lit.kind == literal_expression::kind_t::INT &&
+						right_lit.kind == literal_expression::kind_t::INT) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::INT,
+							std::get<int32_t>(left_lit.value) - std::get<int32_t>(right_lit.value)
+						));
+					}
+				}
+				// 0 - x  -> -x
+				if (left.kind == expression_node::kind_t::LITERAL) {
+					auto lit = std::get<literal_expression>(left.value);
+					if (lit.kind == literal_expression::kind_t::INT &&
+						std::get<int32_t>(lit.value) == 0) {
+						return make_unary(
+							unary_expression::operator_t::MINUS,
+							right
+						);
+					}
+					if (lit.kind == literal_expression::kind_t::CHAR &&
+						std::get<char>(lit.value) == 0) {
+						return make_unary(
+							unary_expression::operator_t::MINUS,
+							right
+						);
+					}
+					if (lit.kind == literal_expression::kind_t::BOOL &&
+						std::get<bool>(lit.value) == false) {
+						return make_unary(
+							unary_expression::operator_t::MINUS,
+							right
+						);
+					}
+				}
+				break;
+			}
+			case binary_expression::operator_t::MUL: {
+				// x * 1  -> x
+				if (right.kind == expression_node::kind_t::LITERAL) {
+					auto lit = std::get<literal_expression>(right.value);
+					if (lit.kind == literal_expression::kind_t::INT &&
+						std::get<int32_t>(lit.value) == 1) {
+						return left;
+					}
+					if (lit.kind == literal_expression::kind_t::CHAR &&
+						std::get<char>(lit.value) == 1) {
+						return left;
+					}
+					if (lit.kind == literal_expression::kind_t::BOOL &&
+						std::get<bool>(lit.value) == true) {
+						return left;
+					}
+				}
+				// 1 * x  -> x
+				if (left.kind == expression_node::kind_t::LITERAL) {
+					auto lit = std::get<literal_expression>(left.value);
+					if (lit.kind == literal_expression::kind_t::INT &&
+						std::get<int32_t>(lit.value) == 1) {
+						return right;
+					}
+					if (lit.kind == literal_expression::kind_t::CHAR &&
+						std::get<char>(lit.value) == 1) {
+						return right;
+					}
+					if (lit.kind == literal_expression::kind_t::BOOL &&
+						std::get<bool>(lit.value) == true) {
+						return right;
+					}
+				}
+				// const * const  -> const
+				if (left.kind == expression_node::kind_t::LITERAL &&
+					right.kind == expression_node::kind_t::LITERAL) {
+					auto left_lit = std::get<literal_expression>(left.value);
+					auto right_lit = std::get<literal_expression>(right.value);
+					if (left_lit.kind == literal_expression::kind_t::INT &&
+						right_lit.kind == literal_expression::kind_t::INT) {
+						return make_literal(literal_expression(
+							literal_expression::kind_t::INT,
+							std::get<int32_t>(left_lit.value) * std::get<int32_t>(right_lit.value)
+						));
+					}
+				}
+			}
+			case binary_expression::operator_t::LAND: {
+				// x && true  -> x
+				// x && false  -> false (if x has no side effects)
+				if (right.kind == expression_node::kind_t::LITERAL) {
+					bool truthy = std::get<literal_expression>(right.value).get_truthiness();
+					if (truthy) {
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized x && true to x ({})\n", bin);
+						}
+						return left;
+					}
+					if (!has_side_effects(left)) {
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized x && false to false ({})\n", bin);
+						}
+						return right;
+					}
+				}
+				// true && x  -> x
+				// false && x  -> false
+				if (left.kind == expression_node::kind_t::LITERAL) {
+					bool truthy = std::get<literal_expression>(left.value).get_truthiness();
+					if (truthy) {
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized true && x to x ({})\n", bin);
+						}
+						return right;
+					}
+					if constexpr (DBG) {
+						std::cout << std::format("Optimized false && x to false ({})\n", bin);
+					}
+					return left;
+				}
+				break;
+			}
+			case binary_expression::operator_t::LOR: {
+				// x || false  -> x
+				// x || true  -> true (if x has no side effects)
+				if (right.kind == expression_node::kind_t::LITERAL) {
+					bool truthy = std::get<literal_expression>(right.value).get_truthiness();
+					if (!truthy) {
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized x || false to x ({})\n", bin);
+						}
+						return left;
+					}
+					if (!has_side_effects(left)) {
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized x || true to true ({})\n", bin);
+						}
+						return right;
+					}
+				}
+				// false || x  -> x
+				// true || x  -> true
+				if (left.kind == expression_node::kind_t::LITERAL) {
+					bool truthy = std::get<literal_expression>(left.value).get_truthiness();
+					if (truthy) {
+						if constexpr (DBG) {
+							std::cout << std::format("Optimized true || x to true ({})\n", bin);
+						}
+						return left;
+					}
+					if constexpr (DBG) {
+						std::cout << std::format("Optimized false || x to x ({})\n", bin);
+					}
+					return right;
+				}
+				break;
+			}
+			default:
+				break;
+		}
+		return make_binary(bin.op, left, right);
+	}
+	expression_node optimize_expression(
+		const expression_node& expr
+	) {
+		switch (expr.kind) {
+			case expression_node::kind_t::LITERAL:
+			case expression_node::kind_t::IDENTIFIER:
+				return expr;
+			case expression_node::kind_t::UNARY:
+				return optimize_unary_expression(
+					make_unary(
+						std::get<unary_expression>(expr.value).op,
+						optimize_expression(
+							*std::get<unary_expression>(expr.value).operand
+						)
+					)
+				);
+			case expression_node::kind_t::BINARY:
+				return optimize_binary_expression(
+					make_binary(
+						std::get<binary_expression>(expr.value).op,
+						optimize_expression(
+							*std::get<binary_expression>(expr.value).left
+						),
+						optimize_expression(
+							*std::get<binary_expression>(expr.value).right
+						)
+					)
+				);
+			case expression_node::kind_t::CALL:
+			case expression_node::kind_t::MEMBER:
+			case expression_node::kind_t::TERNARY:
+				// no optimizations yet
+				return expr;
+			case expression_node::kind_t::UNKNOWN:
+				throw std::runtime_error("Cannot optimize unknown expression");
+		}
+		throw std::runtime_error("Unknown expression kind");
 	}
 } // unqlang::analysis::expressions

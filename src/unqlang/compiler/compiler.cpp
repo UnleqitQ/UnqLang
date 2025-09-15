@@ -3782,13 +3782,16 @@ namespace unqlang::compiler {
 					true
 				);
 				if (var_decl.initializer.has_value()) {
+					// optimize the initializer
+					auto optimized_initializer = analysis::expressions::optimize_expression(*var_decl.initializer);
+					// compile the initializer
 					compile_assignment(
 						assembly::assembly_memory(
 							machine::register_id::ebp,
 							-static_cast<int32_t>(current_scope.get_variable(var_decl.name).offset)
 						),
 						var_decl.type,
-						*var_decl.initializer,
+						optimized_initializer,
 						context,
 						program,
 						current_scope,
@@ -3830,13 +3833,15 @@ namespace unqlang::compiler {
 			bool constant_condition = false;
 			bool constant_value = false;
 			if (clause.condition.has_value()) {
+				// optimize the condition
+				auto optimized_condition = analysis::expressions::optimize_expression(*clause.condition);
 				// compile the condition
 				// if false jump to next clause
 				std::string body_label = label_prefix + std::to_string(statement_index) + "_if_clause_" + std::to_string(i) +
 					"_body";
 				assembly::assembly_program_t clause_program;
 				auto info = compile_conditional_jump(
-					*clause.condition, true, next_label, body_label,
+					optimized_condition, true, next_label, body_label,
 					false, context, clause_program, current_scope, used_regs, modified_regs, statement_index,
 					label_prefix + "_if" + std::to_string(statement_index) + "_c" + std::to_string(i) + "_"
 				);
@@ -3914,7 +3919,7 @@ namespace unqlang::compiler {
 		program.emplace_back(start_label);
 		// compile the condition
 		std::string body_label = label_prefix + std::to_string(statement_index) + "_while_body";
-		auto condition = while_stmt.condition;
+		auto condition = analysis::expressions::optimize_expression(while_stmt.condition);
 		assembly::assembly_program_t cond_program;
 		auto info = compile_conditional_jump(
 			condition, true, end_label, body_label,
@@ -3977,6 +3982,11 @@ namespace unqlang::compiler {
 		std::string label_prefix
 	) {
 		if (return_stmt.value.has_value()) {
+			// optimize the expression
+			analysis::expressions::expression_node optimized_expr =
+				analysis::expressions::optimize_expression(
+					*return_stmt.value
+				);
 			// we need to return a value
 			// the return value will be stored at [ebp + 8] (overwriting the argument space)
 
@@ -3988,7 +3998,7 @@ namespace unqlang::compiler {
 
 			auto& ret_type = context.current_function_signature->return_type;
 			const auto& resolved_ret_type = context.global_context->type_system->resolved_type(ret_type);
-			const auto& expr_val_type = return_stmt.value->get_type(
+			const auto& expr_val_type = optimized_expr.get_type(
 				*context.variable_storage,
 				*context.global_context->function_storage,
 				*context.global_context->type_system
@@ -4035,7 +4045,7 @@ namespace unqlang::compiler {
 				}
 				used_regs.set(ret_reg_id, false);
 				compile_primitive_expression(
-					*return_stmt.value, context, program, current_scope,
+					optimized_expr, context, program, current_scope,
 					{ret_reg_id, expr_size}, used_regs, modified_regs,
 					statement_index, true
 				);
@@ -4095,6 +4105,11 @@ namespace unqlang::compiler {
 		uint32_t statement_index,
 		std::string label_prefix
 	) {
+		// optimize expression
+		analysis::expressions::expression_node optimized_expr =
+			analysis::expressions::optimize_expression(
+				expr_stmt
+			);
 		// we don't care about the result, so we can use any register and not save it
 		machine::register_id target_reg_id = find_free_register(
 			used_regs,
@@ -4113,7 +4128,7 @@ namespace unqlang::compiler {
 		}
 		used_regs.set(target_reg_id, false);
 		compile_primitive_expression(
-			expr_stmt, context, program, current_scope,
+			optimized_expr, context, program, current_scope,
 			{target_reg_id, machine::register_access::dword}, used_regs, modified_regs,
 			statement_index, false
 		);

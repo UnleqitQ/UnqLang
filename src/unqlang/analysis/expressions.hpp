@@ -1,4 +1,6 @@
 #pragma once
+#include <optional>
+
 #include "types.hpp"
 #include "variables.hpp"
 #include "functions.hpp"
@@ -576,6 +578,17 @@ namespace unqlang::analysis::expressions {
 	inline member_expression make_member(const expression_node& object, const std::string& member, bool pointer) {
 		return member_expression(std::make_shared<expression_node>(object), member, pointer);
 	}
+
+	bool has_side_effects(const expression_node& expr);
+	expression_node optimize_unary_expression(
+		const unary_expression& un
+	);
+	expression_node optimize_binary_expression(
+		const binary_expression& bin
+	);
+	expression_node optimize_expression(
+		const expression_node& expr
+	);
 } // unqlang::analysis::expressions
 
 template<>
