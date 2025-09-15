@@ -239,24 +239,33 @@ namespace unqlang::compiler {
 					auto right = *binary_expr.right;
 					// only assign and array subscript can result in a struct
 					if (binary_expr.op == analysis::expressions::binary_expression::operator_t::ASSIGN) {
-						throw std::runtime_error("Passing an assignment expression as a struct argument is currently not supported");
+						throw std::runtime_error(
+							"Passing an assignment expression as a struct argument is currently not supported");
 					}
 					if (binary_expr.op == analysis::expressions::binary_expression::operator_t::ARRAY_SUBSCRIPT) {
-						throw std::runtime_error("Passing an array subscript expression as a struct argument is currently not supported");
+						throw std::runtime_error(
+							"Passing an array subscript expression as a struct argument is currently not supported");
 					}
 					// none of the other expression types can result in a struct
 					throw std::runtime_error("There seems to be some error in the semantic analysis");
 				}
-				if (arg->kind == analysis::expressions::expression_node::kind_t::CALL) {
-					throw std::runtime_error("Passing a call to call expression as a struct argument is currently not supported");
-				}
-				if (arg->kind == analysis::expressions::expression_node::kind_t::MEMBER) {
-					throw std::runtime_error("Passing a member access expression as a struct argument is currently not supported");
-				}
-				if (arg->kind == analysis::expressions::expression_node::kind_t::TERNARY) {
-					throw std::runtime_error("Passing a ternary expression as a struct argument is currently not supported");
-				}
-				throw std::runtime_error("There seems to be some error in the semantic analysis");
+				used_regs.set(temp_reg, true);
+				assembly::assembly_memory dest_mem{
+					machine::register_id::esp
+				};
+				program.emplace_back(assembly::assembly_instruction{
+					machine::operation::LEA,
+					assembly::assembly_result({temp_reg, machine::data_size_t::DWORD}),
+					dest_mem
+				});
+				compile_struct_expression(
+					*arg, context, program, current_scope,
+					assembly::assembly_memory{temp_reg},
+					used_regs, modified_regs,
+					std::get<analysis::types::struct_type>(resolved_param_type.value),
+					statement_index
+				);
+				continue;
 			}
 			throw std::runtime_error("Currently only supports primitives, pointers, functions and structs as parameters");
 		}
@@ -2698,6 +2707,120 @@ namespace unqlang::compiler {
 					reverse ? src : src.add_displacement(size - 1)
 				})
 			));
+		}
+	}
+	void compile_struct_expression(
+		const analysis::expressions::expression_node& expr,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		const assembly::assembly_memory& target_mem,
+		regmask used_regs,
+		regmask& modified_regs,
+		const analysis::types::struct_type& struct_type,
+		uint32_t statement_index
+	) {
+		const auto& type = expr.get_type(
+			*context.variable_storage,
+			*context.global_context->function_storage,
+			*context.global_context->type_system
+		);
+		auto resolved_type = context.global_context->type_system->resolved_type(type);
+		if (resolved_type.kind != analysis::types::type_node::kind_t::STRUCT)
+			throw std::logic_error("Expected struct type in struct expression");
+		auto expr_struct_type = std::get<analysis::types::struct_type>(resolved_type.value);
+		regmask target_regs = get_containing_regs(target_mem);
+		uint32_t struct_size = context.global_context->type_system->get_type_size(expr_struct_type);
+		switch (expr.kind) {
+			case analysis::expressions::expression_node::kind_t::LITERAL:
+				throw std::logic_error("Literal cannot be a struct");
+			case analysis::expressions::expression_node::kind_t::IDENTIFIER: {
+				// struct variable, copy the whole struct
+				const auto& ident = std::get<analysis::expressions::identifier_expression>(expr.value);
+				const auto& declaring_scope = context.variable_storage->get_declaring_scope(ident.name);
+				if (!declaring_scope)
+					throw std::logic_error("Variable not found: " + ident.name);
+				assembly::assembly_memory var_mem;
+				if (declaring_scope->storage_type == analysis::variables::storage::storage_type_t::Global)
+					throw std::logic_error("Global struct variables not supported yet");
+				if (declaring_scope->storage_type == analysis::variables::storage::storage_type_t::Function) {
+					auto idx = context.current_function_signature->name_index_map.at(ident.name);
+					auto param_info = context.current_function_signature->parameters[idx];
+					var_mem = assembly::assembly_memory(
+						machine::register_id::ebp,
+						static_cast<int32_t>(param_info.offset)
+					);
+				}
+				else if (declaring_scope->storage_type == analysis::variables::storage::storage_type_t::Block) {
+					auto var_info = current_scope.get_variable(ident.name);
+					var_mem = assembly::assembly_memory(
+						machine::register_id::ebp,
+						-static_cast<int32_t>(var_info.offset)
+					);
+				}
+				else {
+					throw std::logic_error("Unknown variable storage type");
+				}
+				compile_move_memory(target_mem, var_mem, struct_size, program, false);
+				return;
+			}
+			case analysis::expressions::expression_node::kind_t::UNARY: {
+				const auto& unary = std::get<analysis::expressions::unary_expression>(expr.value);
+				if (unary.op != analysis::expressions::unary_expression::operator_t::DEREFERENCE)
+					throw std::logic_error("Only dereference operator can result in a struct");
+				regmask dest_regs = get_containing_regs(target_mem);
+				machine::register_id temp_reg_id = find_free_register(
+					used_regs,
+					{
+						machine::register_id::ebx, machine::register_id::ecx, machine::register_id::eax,
+						machine::register_id::edx
+					},
+					dest_regs
+				);
+				modified_regs.set(temp_reg_id, true);
+				bool temp_is_used = used_regs.get(temp_reg_id);
+				if (temp_is_used) {
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::PUSH,
+						assembly::assembly_operand{temp_reg_id}
+					));
+				}
+				compile_primitive_expression(
+					*unary.operand, context, program, current_scope,
+					{temp_reg_id, machine::register_access::dword}, used_regs,
+					modified_regs, statement_index
+				);
+				compile_move_memory(
+					target_mem,
+					assembly::assembly_memory(temp_reg_id, 0),
+					struct_size,
+					program,
+					false
+				);
+				if (temp_is_used) {
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::POP,
+						assembly::assembly_result{temp_reg_id}
+					));
+				}
+				return;
+			}
+			case analysis::expressions::expression_node::kind_t::MEMBER: {
+				compile_assignment(
+					target_mem,
+					type,
+					expr,
+					context,
+					program,
+					current_scope,
+					used_regs,
+					modified_regs,
+					statement_index
+				);
+				return;
+			}
+			default:
+				throw std::logic_error("Unsupported expression type for struct");
 		}
 	}
 
