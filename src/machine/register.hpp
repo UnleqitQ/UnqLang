@@ -66,6 +66,9 @@ namespace machine {
 			}
 		}
 		[[nodiscard]] std::string to_string() const;
+		bool operator==(const register_t& other) const {
+			return id == other.id && access == other.access;
+		}
 		static register_t from_string(const std::string& str);
 		friend std::ostream& operator<<(std::ostream& os, const register_t& reg) {
 			os << reg.to_string();

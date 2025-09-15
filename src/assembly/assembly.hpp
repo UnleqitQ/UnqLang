@@ -37,8 +37,7 @@ namespace assembly {
 			VALUE,
 			ADD,
 			SUB,
-			MUL,
-			DIV
+			MUL
 		} type;
 		std::variant<
 			assembly_literal,
@@ -58,6 +57,8 @@ namespace assembly {
 		friend std::ostream& operator<<(std::ostream& os, const extended_assembly_literal& lit) {
 			return os << lit.to_string();
 		}
+		bool operator==(const extended_assembly_literal& other) const;
+		extended_assembly_literal reduced() const;
 	};
 	struct assembly_memory {
 		enum class type : uint8_t {
@@ -96,6 +97,8 @@ namespace assembly {
 			scaled_index,
 			scaled_index_displacement
 		> value;
+		assembly_memory() : memory_type(type::DIRECT), value(extended_assembly_literal(assembly_literal(0))) {
+		}
 		explicit assembly_memory(assembly_literal lit)
 			: memory_type(type::DIRECT), value(lit) {
 		}
@@ -140,6 +143,43 @@ namespace assembly {
 			}
 			return 0; // Should never reach here
 		}
+		assembly_memory reduced() const; // reduces complex expressions to simpler ones if possible
+		bool operator==(const assembly_memory& other) const {
+			const auto& val1 = reduced();
+			const auto& val2 = other.reduced();
+			if (val1.memory_type != val2.memory_type) return false;
+			switch (val1.memory_type) {
+				case type::DIRECT:
+					return std::get<extended_assembly_literal>(val1.value) ==
+						std::get<extended_assembly_literal>(val2.value);
+				case type::REGISTER:
+					return std::get<machine::register_t>(val1.value) ==
+						std::get<machine::register_t>(val2.value);
+				case type::DISPLACEMENT: {
+					const auto& disp1 = std::get<displacement>(val1.value);
+					const auto& disp2 = std::get<displacement>(val2.value);
+					return disp1.reg == disp2.reg && disp1.disp == disp2.disp;
+				}
+				case type::SCALED_INDEX: {
+					const auto& si1 = std::get<scaled_index>(val1.value);
+					const auto& si2 = std::get<scaled_index>(val2.value);
+					return si1.base == si2.base && si1.index == si2.index && si1.scale == si2.scale;
+				}
+				case type::SCALED_INDEX_DISPLACEMENT: {
+					const auto& sid1 = std::get<scaled_index_displacement>(val1.value);
+					const auto& sid2 = std::get<scaled_index_displacement>(val2.value);
+					return sid1.base == sid2.base && sid1.index == sid2.index && sid1.scale == sid2.scale &&
+						sid1.disp == sid2.disp;
+				}
+			}
+			return false; // Should never reach here
+		}
+		assembly_memory add_displacement(int32_t disp) const;
+		assembly_memory add_displacement(const extended_assembly_literal& disp) const;
+		bool can_add_register(machine::register_t reg) const;
+		assembly_memory add_register(machine::register_t reg) const;
+		bool can_add_scaled_register(machine::register_t reg, int16_t scale) const;
+		assembly_memory add_scaled_register(machine::register_t reg, int16_t scale) const;
 	};
 	struct assembly_memory_pointer {
 		machine::data_size_t size;

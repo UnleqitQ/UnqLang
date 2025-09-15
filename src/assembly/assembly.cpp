@@ -38,12 +38,86 @@ namespace assembly {
 				const auto& op = std::get<binary_operation>(value);
 				return std::format("({} * {})", op.left->to_string(hex), op.right->to_string(hex));
 			}
-			case type_t::DIV: {
-				const auto& op = std::get<binary_operation>(value);
-				return std::format("({} / {})", op.left->to_string(hex), op.right->to_string(hex));
-			}
 		}
 		return "";
+	}
+	bool extended_assembly_literal::operator==(const extended_assembly_literal& other) const {
+		if (type != other.type) {
+			return false;
+		}
+		switch (type) {
+			case type_t::VALUE: {
+				const auto& lit1 = std::get<assembly_literal>(value);
+				const auto& lit2 = std::get<assembly_literal>(other.value);
+				return lit1.literal_type == lit2.literal_type && lit1.value == lit2.value;
+			}
+			case type_t::ADD:
+			case type_t::SUB:
+			case type_t::MUL: {
+				const auto& op1 = std::get<binary_operation>(value);
+				const auto& op2 = std::get<binary_operation>(other.value);
+				return *op1.left == *op2.left && *op1.right == *op2.right;
+			}
+		}
+		return false;
+	}
+	extended_assembly_literal extended_assembly_literal::reduced() const {
+		switch (type) {
+			case type_t::VALUE:
+				return *this;
+			case type_t::ADD: {
+				const auto& op = std::get<binary_operation>(value);
+				const auto left_reduced = op.left->reduced();
+				const auto right_reduced = op.right->reduced();
+				if (left_reduced.type == type_t::VALUE && right_reduced.type == type_t::VALUE) {
+					const auto left_lit = std::get<assembly_literal>(left_reduced.value);
+					const auto right_lit = std::get<assembly_literal>(right_reduced.value);
+					if (left_lit.literal_type == assembly_literal::type::NUMBER &&
+						right_lit.literal_type == assembly_literal::type::NUMBER) {
+						return extended_assembly_literal(assembly_literal(
+							static_cast<int32_t>(std::get<int32_t>(left_lit.value) + std::get<int32_t>(right_lit.value))));
+					}
+				}
+				return extended_assembly_literal(type_t::ADD,
+					std::make_shared<extended_assembly_literal>(left_reduced),
+					std::make_shared<extended_assembly_literal>(right_reduced));
+			}
+			case type_t::SUB: {
+				const auto& op = std::get<binary_operation>(value);
+				const auto left_reduced = op.left->reduced();
+				const auto right_reduced = op.right->reduced();
+				if (left_reduced.type == type_t::VALUE && right_reduced.type == type_t::VALUE) {
+					const auto left_lit = std::get<assembly_literal>(left_reduced.value);
+					const auto right_lit = std::get<assembly_literal>(right_reduced.value);
+					if (left_lit.literal_type == assembly_literal::type::NUMBER &&
+						right_lit.literal_type == assembly_literal::type::NUMBER) {
+						return extended_assembly_literal(assembly_literal(
+							static_cast<int32_t>(std::get<int32_t>(left_lit.value) - std::get<int32_t>(right_lit.value))));
+					}
+				}
+				return extended_assembly_literal(type_t::SUB,
+					std::make_shared<extended_assembly_literal>(left_reduced),
+					std::make_shared<extended_assembly_literal>(right_reduced));
+			}
+			case type_t::MUL: {
+				const auto& op = std::get<binary_operation>(value);
+				const auto left_reduced = op.left->reduced();
+				const auto right_reduced = op.right->reduced();
+				if (left_reduced.type == type_t::VALUE && right_reduced.type == type_t::VALUE) {
+					const auto left_lit = std::get<assembly_literal>(left_reduced.value);
+					const auto right_lit = std::get<assembly_literal>(right_reduced.value);
+					if (left_lit.literal_type == assembly_literal::type::NUMBER &&
+						right_lit.literal_type == assembly_literal::type::NUMBER) {
+						return extended_assembly_literal(assembly_literal(
+							static_cast<int32_t>(std::get<int32_t>(left_lit.value) * std::get<int32_t>(right_lit.value))));
+					}
+				}
+				return extended_assembly_literal(type_t::MUL,
+					std::make_shared<extended_assembly_literal>(left_reduced),
+					std::make_shared<extended_assembly_literal>(right_reduced));
+			}
+		}
+		return *this;
 	}
 	std::string assembly_memory::to_string() const {
 		switch (memory_type) {
@@ -77,6 +151,304 @@ namespace assembly {
 			}
 		}
 		return "";
+	}
+	assembly_memory assembly_memory::reduced() const {
+		switch (memory_type) {
+			case type::DIRECT: {
+				return assembly_memory(std::get<extended_assembly_literal>(value).reduced());
+			}
+			case type::REGISTER:
+				return *this;
+			case type::DISPLACEMENT: {
+				const displacement& disp = std::get<displacement>(value);
+				const auto reduced_disp = disp.disp.reduced();
+				if (reduced_disp.type == extended_assembly_literal::type_t::VALUE &&
+					std::get<assembly_literal>(reduced_disp.value).literal_type == assembly_literal::type::NUMBER &&
+					std::get<int32_t>(std::get<assembly_literal>(reduced_disp.value).value) == 0) {
+					return assembly_memory(disp.reg);
+				}
+				return assembly_memory(disp.reg, reduced_disp);
+			}
+			case type::SCALED_INDEX: {
+				if (std::get<scaled_index>(value).scale == 0) {
+					return assembly_memory(std::get<scaled_index>(value).base);
+				}
+				return *this;
+			}
+			case type::SCALED_INDEX_DISPLACEMENT: {
+				const scaled_index_displacement& sid = std::get<scaled_index_displacement>(value);
+				const auto reduced_disp = sid.disp.reduced();
+				bool scale_zero = sid.scale == 0;
+				bool disp_zero = reduced_disp.type == extended_assembly_literal::type_t::VALUE &&
+					std::get<assembly_literal>(reduced_disp.value).literal_type == assembly_literal::type::NUMBER &&
+					std::get<int32_t>(std::get<assembly_literal>(reduced_disp.value).value) == 0;
+				if (scale_zero && disp_zero) {
+					return assembly_memory(sid.base);
+				}
+				if (scale_zero) {
+					return assembly_memory(sid.base, reduced_disp);
+				}
+				if (disp_zero) {
+					return assembly_memory(sid.base, sid.index, sid.scale);
+				}
+				return assembly_memory(sid.base, sid.index, sid.scale, reduced_disp);
+			}
+		}
+		return *this;
+	}
+	assembly_memory assembly_memory::add_displacement(int32_t disp) const {
+		if (disp == 0) {
+			return *this;
+		}
+		return add_displacement(extended_assembly_literal(assembly_literal(disp)));
+	}
+	assembly_memory assembly_memory::add_displacement(const extended_assembly_literal& disp) const {
+		switch (memory_type) {
+			case type::DIRECT: {
+				const auto base = std::get<extended_assembly_literal>(value);
+				return assembly_memory(extended_assembly_literal(
+					extended_assembly_literal::type_t::ADD,
+					std::make_shared<extended_assembly_literal>(base),
+					std::make_shared<extended_assembly_literal>(disp)
+				).reduced());
+			}
+			case type::REGISTER: {
+				const auto reg = std::get<machine::register_t>(value);
+				return assembly_memory(reg, disp);
+			}
+			case type::DISPLACEMENT: {
+				const auto d = std::get<displacement>(value);
+				return assembly_memory(d.reg, extended_assembly_literal(
+					extended_assembly_literal::type_t::ADD,
+					std::make_shared<extended_assembly_literal>(d.disp),
+					std::make_shared<extended_assembly_literal>(disp)
+				).reduced());
+			}
+			case type::SCALED_INDEX: {
+				const auto si = std::get<scaled_index>(value);
+				return assembly_memory(si.base, si.index, si.scale, disp);
+			}
+			case type::SCALED_INDEX_DISPLACEMENT: {
+				const auto sid = std::get<scaled_index_displacement>(value);
+				return assembly_memory(sid.base, sid.index, sid.scale, extended_assembly_literal(
+					extended_assembly_literal::type_t::ADD,
+					std::make_shared<extended_assembly_literal>(sid.disp),
+					std::make_shared<extended_assembly_literal>(disp)
+				).reduced());
+			}
+		}
+		throw std::runtime_error("Unknown memory type");
+	}
+	bool assembly_memory::can_add_register(machine::register_t reg) const {
+		switch (memory_type) {
+			case type::DIRECT:
+				return true;
+			case type::REGISTER:
+				return true;
+			case type::DISPLACEMENT:
+				return true;
+			case type::SCALED_INDEX: {
+				const auto si = std::get<scaled_index>(value);
+				if (si.index == reg) {
+					return true; // Adding the same register as index is allowed (scale will be adjusted)
+				}
+				if (si.scale == 0) {
+					return true; // Can add index if scale is 0
+				}
+				if (si.base == reg && si.scale == 1) {
+					return true; // Can add if base is the same and scale is 1 (so they can be swapped)
+				}
+				if (si.base == si.index) {
+					return true; // Can add if base and index are the same (so they can be merged)
+				}
+				return false; // Cannot add another register if both base and index are occupied
+			}
+			case type::SCALED_INDEX_DISPLACEMENT: {
+				const auto sid = std::get<scaled_index_displacement>(value);
+				if (sid.index == reg) {
+					return true; // Adding the same register as index is allowed (scale will be adjusted)
+				}
+				if (sid.scale == 0) {
+					return true; // Can add index if scale is 0
+				}
+				if (sid.base == reg && sid.scale == 1) {
+					return true; // Can add if base is the same and scale is 1 (so they can be swapped)
+				}
+				if (sid.base == sid.index) {
+					return true; // Can add if base and index are the same (so they can be merged)
+				}
+				return false; // Cannot add another register if both base and index are occupied
+			}
+		}
+		return false;
+	}
+	assembly_memory assembly_memory::add_register(machine::register_t reg) const {
+		switch (memory_type) {
+			case type::DIRECT: {
+				return assembly_memory(reg);
+			}
+			case type::REGISTER: {
+				const auto base = std::get<machine::register_t>(value);
+				return assembly_memory(base, reg, 1);
+			}
+			case type::DISPLACEMENT: {
+				const auto d = std::get<displacement>(value);
+				return assembly_memory(d.reg, reg, 1, d.disp);
+			}
+			case type::SCALED_INDEX: {
+				const auto si = std::get<scaled_index>(value);
+				if (si.index == reg) {
+					// Adding the same register as index, increment scale
+					return assembly_memory(si.base, si.index, si.scale + 1);
+				}
+				if (si.scale == 0) {
+					// Scale is 0, just set the index to the new register with scale 1
+					return assembly_memory(si.base, reg, 1);
+				}
+				if (si.base == reg && si.scale == 1) {
+					// Base is the same as the new register and scale is 1, swap base and index
+					return assembly_memory(si.index, si.base, 2);
+				}
+				if (si.base == si.index) {
+					// Base and index are the same, increment scale
+					return assembly_memory(reg, si.index, si.scale + 1);
+				}
+				throw std::runtime_error("Cannot add another register to this memory operand");
+			}
+			case type::SCALED_INDEX_DISPLACEMENT: {
+				const auto sid = std::get<scaled_index_displacement>(value);
+				if (sid.index == reg) {
+					// Adding the same register as index, increment scale
+					return assembly_memory(sid.base, sid.index, sid.scale + 1, sid.disp);
+				}
+				if (sid.scale == 0) {
+					// Scale is 0, just set the index to the new register with scale 1
+					return assembly_memory(sid.base, reg, 1, sid.disp);
+				}
+				if (sid.base == reg && sid.scale == 1) {
+					// Base is the same as the new register and scale is 1, swap base and index
+					return assembly_memory(sid.index, sid.base, 2, sid.disp);
+				}
+				if (sid.base == sid.index) {
+					// Base and index are the same, increment scale
+					return assembly_memory(reg, sid.index, sid.scale + 1, sid.disp);
+				}
+				throw std::runtime_error("Cannot add another register to this memory operand");
+			}
+		}
+		throw std::runtime_error("Unknown memory type");
+	}
+	bool assembly_memory::can_add_scaled_register(machine::register_t reg, int16_t scale) const {
+		if (scale == 1) {
+			return can_add_register(reg);
+		}
+		if (scale == 0) {
+			return true; // Adding a scale of 0 is always allowed (it has no effect)
+		}
+		switch (memory_type) {
+			case type::DIRECT:
+				return true;
+			case type::REGISTER:
+				return true;
+			case type::DISPLACEMENT:
+				return true;
+			case type::SCALED_INDEX: {
+				const auto si = std::get<scaled_index>(value);
+				if (si.index == reg) {
+					return true; // Adding the same register as index is allowed (scale will be adjusted)
+				}
+				if (si.scale == 0) {
+					return true; // Can add index if scale is 0
+				}
+				if (si.base == reg && si.scale == 1) {
+					return true; // Can add if base is the same and scale is 1 (so they can be swapped)
+				}
+				if (si.base == si.index && si.scale == -1) {
+					return true; // Can add if base and index are the same, and they add to 0 (so they can be merged)
+				}
+				return false; // Cannot add another register if both base and index are occupied
+			}
+			case type::SCALED_INDEX_DISPLACEMENT: {
+				const auto sid = std::get<scaled_index_displacement>(value);
+				if (sid.index == reg) {
+					return true; // Adding the same register as index is allowed (scale will be adjusted)
+				}
+				if (sid.scale == 0) {
+					return true; // Can add index if scale is 0
+				}
+				if (sid.base == reg && sid.scale == 1) {
+					return true; // Can add if base is the same and scale is 1 (so they can be swapped)
+				}
+				if (sid.base == sid.index && sid.scale == -1) {
+					return true; // Can add if base and index are the same, and they add to 0 (so they can be merged)
+				}
+				return false; // Cannot add another register if both base and index are occupied
+			}
+		}
+		return false;
+	}
+	assembly_memory assembly_memory::add_scaled_register(machine::register_t reg, int16_t scale) const {
+		if (scale == 1) {
+			return add_register(reg);
+		}
+		if (scale == 0) {
+			return *this; // Adding a scale of 0 has no effect
+		}
+		switch (memory_type) {
+			case type::DIRECT: {
+				auto dir = std::get<extended_assembly_literal>(value);
+				return assembly_memory(reg, reg, scale - 1, dir);
+			}
+			case type::REGISTER: {
+				const auto base = std::get<machine::register_t>(value);
+				return assembly_memory(base, reg, scale);
+			}
+			case type::DISPLACEMENT: {
+				const auto d = std::get<displacement>(value);
+				return assembly_memory(d.reg, reg, scale, d.disp);
+			}
+			case type::SCALED_INDEX: {
+				const auto si = std::get<scaled_index>(value);
+				if (si.index == reg) {
+					// Adding the same register as index, increment scale
+					return assembly_memory(si.base, si.index, si.scale + scale);
+				}
+				if (si.scale == 0) {
+					// Scale is 0, just set the index to the new register with the given scale
+					return assembly_memory(si.base, reg, scale);
+				}
+				if (si.base == reg && si.scale == 1) {
+					// Base is the same as the new register and scale is 1, swap base and index
+					return assembly_memory(si.index, si.base, scale + 1);
+				}
+				if (si.base == si.index && si.scale == -scale) {
+					// Base and index are the same, and they add to 0
+					return assembly_memory(reg, reg, scale - 1);
+				}
+				throw std::runtime_error("Cannot add another register to this memory operand");
+			}
+			case type::SCALED_INDEX_DISPLACEMENT: {
+				const auto sid = std::get<scaled_index_displacement>(value);
+				if (sid.index == reg) {
+					// Adding the same register as index, increment scale
+					return assembly_memory(sid.base, sid.index, sid.scale + scale, sid.disp);
+				}
+				if (sid.scale == 0) {
+					// Scale is 0, just set the index to the new register with the given scale
+					return assembly_memory(sid.base, reg, scale, sid.disp);
+				}
+				if (sid.base == reg && sid.scale == 1) {
+					// Base is the same as the new register and scale is 1, swap base and index
+					return assembly_memory(sid.index, sid.base, scale + 1, sid.disp);
+				}
+				if (sid.base == sid.index && sid.scale == -scale) {
+					// Base and index are the same, and they add to 0
+					return assembly_memory(reg, reg, scale - 1, sid.disp);
+				}
+				throw std::runtime_error("Cannot add another register to this memory operand");
+			}
+		}
+		throw std::runtime_error("Unknown memory type");
 	}
 
 
@@ -112,14 +484,6 @@ namespace assembly {
 			case extended_assembly_literal::type_t::MUL: {
 				const auto& op = std::get<extended_assembly_literal::binary_operation>(lit.value);
 				return resolve_literal(*op.left, label_map) * resolve_literal(*op.right, label_map);
-			}
-			case extended_assembly_literal::type_t::DIV: {
-				const auto& op = std::get<extended_assembly_literal::binary_operation>(lit.value);
-				const auto divisor = resolve_literal(*op.right, label_map);
-				if (divisor == 0) {
-					throw std::runtime_error("Division by zero in literal expression");
-				}
-				return resolve_literal(*op.left, label_map) / divisor;
 			}
 		}
 		throw std::runtime_error("Unknown extended literal type");

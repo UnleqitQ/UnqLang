@@ -86,7 +86,181 @@ namespace unqlang::compiler {
 		std::string fname = std::format("func_{}_entry", name);
 		return fname;
 	}
-
+	void compile_call_arguments(
+		const analysis::expressions::call_expression& call_expr,
+		const analysis::types::function_type& func_type,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		regmask& modified_regs,
+		uint32_t statement_index
+	) {
+		const machine::register_id temp_reg = find_free_register(
+			used_regs,
+			{
+				machine::register_id::eax, machine::register_id::ecx,
+				machine::register_id::edx, machine::register_id::ebx,
+				machine::register_id::esi, machine::register_id::edi
+			}
+		);
+		if (used_regs.get(temp_reg)) {
+			throw std::runtime_error("This should never happen");
+		}
+		used_regs.set(temp_reg, false);
+		modified_regs.set(temp_reg, true);
+		for (int i = static_cast<int>(call_expr.arguments.size()) - 1; i >= 0; --i) {
+			auto arg = call_expr.arguments[i];
+			auto param_type = func_type.parameter_types[i];
+			auto resolved_param_type = context.global_context->type_system->resolved_type(*param_type);
+			auto arg_type = arg->get_type(
+				*context.variable_storage,
+				*context.global_context->function_storage,
+				*context.global_context->type_system
+			);
+			auto resolved_arg_type = context.global_context->type_system->resolved_type(arg_type);
+			if (resolved_param_type.kind == analysis::types::type_node::kind_t::PRIMITIVE ||
+				resolved_param_type.kind == analysis::types::type_node::kind_t::POINTER ||
+				resolved_param_type.kind == analysis::types::type_node::kind_t::FUNCTION
+			) {
+				if (resolved_param_type.kind == analysis::types::type_node::kind_t::PRIMITIVE &&
+					resolved_arg_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
+					// both are primitive, check if they are compatible
+					auto param_prim_type = std::get<analysis::types::primitive_type>(resolved_param_type.value);
+					auto arg_prim_type = std::get<analysis::types::primitive_type>(resolved_arg_type.value);
+					if (!analysis::types::can_implicitly_convert(arg_prim_type, param_prim_type)) {
+						throw std::runtime_error("Argument type does not match function signature");
+					}
+				}
+				else if (!context.global_context->type_system->is_equivalent(resolved_param_type, resolved_arg_type)) {
+					throw std::runtime_error("Argument type does not match function signature");
+				}
+				machine::data_size_t param_size = resolved_param_type.kind == analysis::types::type_node::kind_t::PRIMITIVE
+					? analysis::types::to_data_size(std::get<analysis::types::primitive_type>(resolved_param_type.value))
+					: machine::data_size_t::DWORD;
+				compile_primitive_expression(
+					*arg, context, program, current_scope,
+					{temp_reg, param_size}, used_regs, modified_regs, statement_index
+				);
+				// push param_reg onto stack
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::PUSH,
+					assembly::assembly_operand({temp_reg, param_size})
+				));
+				continue;
+			}
+			if (resolved_param_type.kind == analysis::types::type_node::kind_t::STRUCT &&
+				resolved_arg_type.kind == analysis::types::type_node::kind_t::STRUCT) {
+				// both are struct, check if they are equivalent
+				if (!context.global_context->type_system->is_equivalent(resolved_param_type, resolved_arg_type)) {
+					throw std::runtime_error("Argument type does not match function signature");
+				}
+				uint32_t size = context.global_context->type_system->get_type_size(*param_type);
+				program.emplace_back(assembly::assembly_instruction{
+					machine::operation::SUB,
+					assembly::assembly_result(machine::register_id::esp),
+					assembly::assembly_operand(size)
+				});
+				if (arg->kind == analysis::expressions::expression_node::kind_t::IDENTIFIER) {
+					assembly::assembly_memory dest_mem{
+						machine::register_id::esp
+					};
+					// this means the argument is a variable, or a parameter
+					// there will be no overlap between the source and destination
+					auto var_name = std::get<analysis::expressions::identifier_expression>(arg->value).name;
+					auto var_scope = context.variable_storage->get_declaring_scope(var_name);
+					if (var_scope->storage_type == analysis::variables::storage::storage_type_t::Global)
+						throw std::runtime_error("Passing global structs by value is not supported yet");
+					assembly::assembly_memory src_mem;
+					if (var_scope->storage_type == analysis::variables::storage::storage_type_t::Function) {
+						auto param_info = context.current_function_signature->parameters[context.current_function_signature->
+							name_index_map.at(var_name)];
+						src_mem = {
+							machine::register_id::ebp,
+							static_cast<int32_t>(param_info.offset)
+						};
+					}
+					else if (var_scope->storage_type == analysis::variables::storage::storage_type_t::Block) {
+						auto var_info = current_scope.get_variable(var_name);
+						src_mem = {
+							machine::register_id::ebp,
+							-static_cast<int32_t>(var_info.offset)
+						};
+					}
+					else {
+						throw std::runtime_error("Unknown variable storage type");
+					}
+					compile_move_memory(dest_mem, src_mem, size, program);
+					continue;
+				}
+				if (arg->kind == analysis::expressions::expression_node::kind_t::UNARY) {
+					auto unary_expr = std::get<analysis::expressions::unary_expression>(arg->value);
+					if (unary_expr.op == analysis::expressions::unary_expression::operator_t::DEREFERENCE) {
+						// this means the argument is a dereference expression
+						auto deref_expr = std::get<analysis::expressions::unary_expression>(arg->value).operand;
+						auto deref_type = deref_expr->get_type(
+							*context.variable_storage,
+							*context.global_context->function_storage,
+							*context.global_context->type_system
+						);
+						auto resolved_deref_type = context.global_context->type_system->resolved_type(deref_type);
+						if (resolved_deref_type.kind != analysis::types::type_node::kind_t::POINTER) {
+							throw std::runtime_error("Expected a pointer type for dereference");
+						}
+						auto pointee_type = std::get<analysis::types::pointer_type>(resolved_deref_type.value).pointee_type;
+						auto resolved_pointee_type = context.global_context->type_system->resolved_type(*pointee_type);
+						if (resolved_pointee_type.kind != analysis::types::type_node::kind_t::STRUCT) {
+							throw std::runtime_error("Expected a struct type for dereeference");
+						}
+						if (!context.global_context->type_system->is_equivalent(resolved_pointee_type, resolved_arg_type)) {
+							throw std::runtime_error("Argument type does not match function signature");
+						}
+						// compile the pointer expression into temp_reg
+						compile_primitive_expression(
+							*deref_expr, context, program, current_scope,
+							{temp_reg, machine::data_size_t::DWORD}, used_regs, modified_regs, statement_index
+						);
+						assembly::assembly_memory src_mem{
+							temp_reg
+						};
+						assembly::assembly_memory dest_mem{
+							machine::register_id::esp
+						};
+						// we can assume there is no overlap between source and destination (if there is, that means the memory is leaked anyway)
+						compile_move_memory(dest_mem, src_mem, size, program);
+						continue;
+					}
+					// none of the other expression types can result in a struct
+					throw std::runtime_error("There seems to be some error in the semantic analysis");
+				}
+				if (arg->kind == analysis::expressions::expression_node::kind_t::BINARY) {
+					auto binary_expr = std::get<analysis::expressions::binary_expression>(arg->value);
+					auto left = *binary_expr.left;
+					auto right = *binary_expr.right;
+					// only assign and array subscript can result in a struct
+					if (binary_expr.op == analysis::expressions::binary_expression::operator_t::ASSIGN) {
+						throw std::runtime_error("Passing an assignment expression as a struct argument is currently not supported");
+					}
+					if (binary_expr.op == analysis::expressions::binary_expression::operator_t::ARRAY_SUBSCRIPT) {
+						throw std::runtime_error("Passing an array subscript expression as a struct argument is currently not supported");
+					}
+					// none of the other expression types can result in a struct
+					throw std::runtime_error("There seems to be some error in the semantic analysis");
+				}
+				if (arg->kind == analysis::expressions::expression_node::kind_t::CALL) {
+					throw std::runtime_error("Passing a call to call expression as a struct argument is currently not supported");
+				}
+				if (arg->kind == analysis::expressions::expression_node::kind_t::MEMBER) {
+					throw std::runtime_error("Passing a member access expression as a struct argument is currently not supported");
+				}
+				if (arg->kind == analysis::expressions::expression_node::kind_t::TERNARY) {
+					throw std::runtime_error("Passing a ternary expression as a struct argument is currently not supported");
+				}
+				throw std::runtime_error("There seems to be some error in the semantic analysis");
+			}
+			throw std::runtime_error("Currently only supports primitives, pointers, functions and structs as parameters");
+		}
+	}
 	void compile_assignment(
 		const assembly::assembly_memory& dest,
 		const analysis::types::type_node& dest_type,
@@ -1523,46 +1697,10 @@ namespace unqlang::compiler {
 			}
 			used_regs.set(param_reg, false);
 			// push parameters in reverse order
-			for (int i = static_cast<int>(call.arguments.size()) - 1; i >= 0; --i) {
-				auto arg = call.arguments[i];
-				auto param_type = func_type.parameter_types[i];
-				auto resolved_param_type = context.global_context->type_system->resolved_type(*param_type);
-				auto arg_type = arg->get_type(
-					*context.variable_storage,
-					*context.global_context->function_storage,
-					*context.global_context->type_system
-				);
-				auto resolved_arg_type = context.global_context->type_system->resolved_type(arg_type);
-				if (resolved_param_type.kind != analysis::types::type_node::kind_t::PRIMITIVE &&
-					resolved_param_type.kind != analysis::types::type_node::kind_t::POINTER &&
-					resolved_param_type.kind != analysis::types::type_node::kind_t::FUNCTION) {
-					throw std::runtime_error("Currently only supports primitives, pointers and functions as parameters");
-				}
-				if (resolved_param_type.kind == analysis::types::type_node::kind_t::PRIMITIVE &&
-					resolved_arg_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
-					// both are primitive, check if they are compatible
-					auto param_prim_type = std::get<analysis::types::primitive_type>(resolved_param_type.value);
-					auto arg_prim_type = std::get<analysis::types::primitive_type>(resolved_arg_type.value);
-					if (!analysis::types::can_implicitly_convert(arg_prim_type, param_prim_type)) {
-						throw std::runtime_error("Argument type does not match function signature");
-					}
-				}
-				else if (!context.global_context->type_system->is_equivalent(resolved_param_type, resolved_arg_type)) {
-					throw std::runtime_error("Argument type does not match function signature");
-				}
-				machine::data_size_t param_size = resolved_param_type.kind == analysis::types::type_node::kind_t::PRIMITIVE
-					? analysis::types::to_data_size(std::get<analysis::types::primitive_type>(resolved_param_type.value))
-					: machine::data_size_t::DWORD;
-				compile_primitive_expression(
-					*arg, context, program, current_scope,
-					{param_reg, param_size}, used_regs, modified_regs, statement_index
-				);
-				// push param_reg onto stack
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::PUSH,
-					assembly::assembly_operand({param_reg, param_size})
-				));
-			}
+			compile_call_arguments(
+				call, func_type, context, program,
+				current_scope, used_regs, modified_regs, statement_index
+			);
 			// now call the function
 			if (call_type == call_type_t::Direct) {
 				const auto& function_label = generate_function_label(
@@ -2494,6 +2632,73 @@ namespace unqlang::compiler {
 			default:
 				throw std::runtime_error("Unknown expression type");
 		};
+	}
+	void compile_move_memory(
+		const assembly::assembly_memory& dest,
+		const assembly::assembly_memory& src,
+		uint32_t size,
+		assembly::assembly_program_t& program,
+		bool reverse
+	) {
+		if (size == 0)
+			return;
+		if (dest == src)
+			return;
+		// for small sizes, just write it out
+		uint8_t dwords = size >> 2;
+		bool word = size & 2;
+		bool byte = size & 1;
+		for (uint8_t i = 0; i < dwords; ++i) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::MOV,
+				assembly::assembly_result({
+					machine::data_size_t::DWORD,
+					dest.add_displacement(reverse ? size - (i + 1) * 4 : i * 4)
+				}),
+				assembly::assembly_operand({
+					machine::data_size_t::DWORD,
+					src.add_displacement(reverse ? size - (i + 1) * 4 : i * 4)
+				})
+			));
+		}
+		if (word) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::MOV,
+				assembly::assembly_result({
+					machine::data_size_t::WORD,
+					reverse
+					? byte
+					? dest.add_displacement(1)
+					: dest
+					: byte
+					? dest.add_displacement(size - 2)
+					: dest.add_displacement(dwords * 4)
+				}),
+				assembly::assembly_operand({
+					machine::data_size_t::WORD,
+					reverse
+					? byte
+					? src.add_displacement(1)
+					: src
+					: byte
+					? src.add_displacement(size - 2)
+					: src.add_displacement(dwords * 4)
+				})
+			));
+		}
+		if (byte) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::MOV,
+				assembly::assembly_result({
+					machine::data_size_t::BYTE,
+					reverse ? dest : dest.add_displacement(size - 1)
+				}),
+				assembly::assembly_operand({
+					machine::data_size_t::BYTE,
+					reverse ? src : src.add_displacement(size - 1)
+				})
+			));
+		}
 	}
 
 	bool contains_side_effects(const analysis::expressions::expression_node& expr) {

@@ -23,6 +23,31 @@ namespace unqlang::compiler {
 	);
 
 	/**
+	 * Compiles the arguments for a function call, preparing them according to the calling convention.
+	 * This includes evaluating each argument expression, handling type conversions, and placing
+	 * the arguments in the appropriate registers or stack locations as required by the calling convention.
+	 *
+	 * @param call_expr The call expression containing the function being called and its arguments.
+	 * @param func_type The type of the function being called, which includes information about its parameters and return type.
+	 * @param context The current compilation context, which may include information about the current scope and type system.
+	 * @param program The assembly program to which the compiled instructions will be appended.
+	 * @param current_scope The current assembly scope, which may be needed for variable lookups and other context-specific information.
+	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
+	 * @param statement_index The index of the statement being compiled, useful for error reporting and debugging.
+	 */
+	void compile_call_arguments(
+		const analysis::expressions::call_expression& call_expr,
+		const analysis::types::function_type& func_type,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		regmask used_regs,
+		regmask& modified_regs,
+		uint32_t statement_index
+	);
+
+	/**
 	 * Compiles an assignment operation from a source expression to a destination memory location.
 	 * @param dest The destination memory location where the result will be stored.
 	 * @param dest_type The type of the destination.
@@ -103,6 +128,48 @@ namespace unqlang::compiler {
 		regmask& modified_regs,
 		uint32_t statement_index,
 		bool store_value = true
+	);
+
+	/**
+	 * Compiles a memory-to-memory move operation, without doing any checks for overlapping regions.
+	 *
+	 * @param dest The destination memory operand where data will be moved to.
+	 * @param src The source memory operand from which data will be moved.
+	 * @param size The size of the data to move, in bytes.
+	 * @param program The assembly program to which the compiled instructions will be appended.
+	 * @param reverse If true, the move is performed in reverse order (from higher to lower addresses), useful for overlapping regions.
+	 * Set this to true if destination is higher than source and regions overlap.
+	 */
+	void compile_move_memory(
+		const assembly::assembly_memory& dest,
+		const assembly::assembly_memory& src,
+		uint32_t size,
+		assembly::assembly_program_t& program,
+		bool reverse = false
+	);
+
+	/**
+	 * Compiles an expression that results in a struct type.
+	 * @param expr The expression to compile.
+	 * @param context The current compilation context.
+	 * @param program The assembly program to append to.
+	 * @param current_scope The current assembly scope.
+	 * @param target_mem The memory location to store the struct in.
+	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
+	 * @param struct_type The type of the struct being compiled.
+	 * @param statement_index The index of the statement being compiled
+	 */
+	void compile_struct_expression(
+		const analysis::expressions::expression_node& expr,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		const assembly::assembly_memory& target_mem,
+		regmask used_regs,
+		regmask& modified_regs,
+		const analysis::types::struct_type& struct_type,
+		uint32_t statement_index
 	);
 
 	/**
