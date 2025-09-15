@@ -2376,7 +2376,7 @@ namespace unqlang::compiler {
 						// load address into target_reg
 						program.emplace_back(assembly::assembly_instruction(
 							machine::operation::LEA,
-							assembly::assembly_result{target_reg},
+							assembly::assembly_result{target_reg.id},
 							ref
 						));
 						// now restore the saved registers
