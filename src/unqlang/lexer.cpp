@@ -134,8 +134,8 @@ namespace unqlang {
 			return lexer_token{lexer_token::type_t::String, str};
 		}, "string");
 	std::vector<std::string> operator_strings = {
-		"++", "--", "==", "!=", "<<", ">>", "<=", ">=", "&&", "||", "+", "-", "*", "/", "%", "=", "<", ">", "!", "&", "|",
-		"^", "~"
+		"->", "++", "--", "==", "!=", "<<", ">>", "<=", ">=", "&&", "||", "+", "-",
+		"*", "/", "%", "=", "<", ">", "!", "&", "|", "^", "~"
 	};
 	const Parser<char, lexer_token> operator_lexer = tokens(operator_strings, "operators", false, true)
 		.map<lexer_token>([](const std::vector<char>& op) {
