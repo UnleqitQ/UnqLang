@@ -464,7 +464,7 @@ namespace unqlang::analysis::types {
 	type_node type_system::get_result_type_member_access(const type_node& object_type, const std::string& member_name,
 		bool pointer) const {
 		type_node obj_type = object_type;
-		const auto resolved_object_type = resolved_type(object_type);
+		type_node resolved_object_type = resolved_type(object_type);
 		if (pointer) {
 			if (resolved_object_type.kind != type_node::kind_t::POINTER) {
 				throw std::logic_error("Member access with '->' requires pointer type on left side");
@@ -472,14 +472,15 @@ namespace unqlang::analysis::types {
 			const auto& ptr = std::get<pointer_type>(resolved_object_type.value);
 			const auto pointee_type = resolved_type(*ptr.pointee_type);
 			obj_type = pointee_type;
+			resolved_object_type = pointee_type;
 		}
-		if (obj_type.kind == type_node::kind_t::STRUCT) {
-			const auto& st = std::get<struct_type>(obj_type.value);
+		if (resolved_object_type.kind == type_node::kind_t::STRUCT) {
+			const auto& st = std::get<struct_type>(resolved_object_type.value);
 			const auto member_info = get_struct_member_info(st, member_name);
 			return *member_info.type;
 		}
-		if (obj_type.kind == type_node::kind_t::UNION) {
-			const auto& un = std::get<union_type>(obj_type.value);
+		if (resolved_object_type.kind == type_node::kind_t::UNION) {
+			const auto& un = std::get<union_type>(resolved_object_type.value);
 			const auto member_info = get_union_member_info(un, member_name);
 			return *member_info.type;
 		}
@@ -552,6 +553,7 @@ namespace unqlang::analysis::types {
 						return true;
 					}
 				}
+				return is_equivalent(*ptr_a.pointee_type, *ptr_b.pointee_type, options);
 			}
 			case type_node::kind_t::FUNCTION: {
 				if (options.ignore_functions) {
