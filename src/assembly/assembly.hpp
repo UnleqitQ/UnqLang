@@ -103,7 +103,7 @@ namespace assembly {
 			: memory_type(type::DIRECT), value(lit) {
 		}
 		explicit assembly_memory(extended_assembly_literal lit)
-			: memory_type(type::DIRECT), value(lit) {
+			: memory_type(type::DIRECT), value(lit.reduced()) {
 		}
 		explicit assembly_memory(machine::register_t reg)
 			: memory_type(type::REGISTER), value(reg) {
@@ -112,7 +112,7 @@ namespace assembly {
 			: memory_type(type::DISPLACEMENT), value(displacement{reg, disp}) {
 		}
 		assembly_memory(machine::register_t reg, extended_assembly_literal disp)
-			: memory_type(type::DISPLACEMENT), value(displacement{reg, disp}) {
+			: memory_type(type::DISPLACEMENT), value(displacement{reg, disp.reduced()}) {
 		}
 		assembly_memory(machine::register_t base, machine::register_t index, int16_t scale)
 			: memory_type(type::SCALED_INDEX), value(scaled_index{base, index, scale}) {
@@ -121,7 +121,7 @@ namespace assembly {
 			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value(scaled_index_displacement{base, index, scale, disp}) {
 		}
 		assembly_memory(machine::register_t base, machine::register_t index, int16_t scale, extended_assembly_literal disp)
-			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value(scaled_index_displacement{base, index, scale, disp}) {
+			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value(scaled_index_displacement{base, index, scale, disp.reduced()}) {
 		}
 		std::string to_string() const;
 		friend std::ostream& operator<<(std::ostream& os, const assembly_memory& mem) {
@@ -414,7 +414,8 @@ namespace assembly {
 		enum class type : uint8_t {
 			LABEL,
 			INSTRUCTION,
-			RAW_DATA
+			RAW_DATA,
+			COMMENT
 		} component_type;
 		std::variant<
 			std::string,
@@ -430,6 +431,21 @@ namespace assembly {
 		}
 		assembly_component(const std::vector<uint8_t>& data)
 			: component_type(type::RAW_DATA), value(data) {
+		}
+		assembly_component(type comp_type, const std::variant<std::string, assembly_instruction, std::vector<uint8_t>>& val)
+			: component_type(comp_type), value(val) {
+			if (comp_type == type::LABEL && !std::holds_alternative<std::string>(val)) {
+				throw std::invalid_argument("Value must be a string for LABEL component");
+			}
+			if (comp_type == type::INSTRUCTION && !std::holds_alternative<assembly_instruction>(val)) {
+				throw std::invalid_argument("Value must be an assembly_instruction for INSTRUCTION component");
+			}
+			if (comp_type == type::RAW_DATA && !std::holds_alternative<std::vector<uint8_t>>(val)) {
+				throw std::invalid_argument("Value must be a vector<uint8_t> for RAW_DATA component");
+			}
+			if (comp_type == type::COMMENT && !std::holds_alternative<std::string>(val)) {
+				throw std::invalid_argument("Value must be a string for COMMENT component");
+			}
 		}
 
 		friend std::ostream& operator<<(std::ostream& os, const assembly_component& comp) {
@@ -451,6 +467,9 @@ namespace assembly {
 					}
 					break;
 				}
+				case type::COMMENT:
+					os << std::format("; {}", std::get<std::string>(comp.value));
+					break;
 			}
 			return os;
 		}

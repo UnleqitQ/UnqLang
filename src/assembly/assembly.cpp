@@ -651,8 +651,11 @@ namespace assembly {
 				}
 				else {
 					const auto& data = std::get<std::vector<uint8_t>>(comp.value);
-					address += static_cast<uint32_t>((data.size() + 3) / 4); // Round up to nearest 4 bytes
+					address += static_cast<uint32_t>(data.size());
 				}
+			}
+			else if (comp.component_type == assembly_component::type::COMMENT) {
+				// Do nothing
 			}
 			else {
 				throw std::runtime_error("Unknown assembly component type");
