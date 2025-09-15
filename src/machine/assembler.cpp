@@ -290,7 +290,7 @@ namespace machine::assembler {
 			}
 		uint8_t size_type = bytecode[pc++];
 		out.size = static_cast<data_size_t>(size_type & 0x03);
-		out.memory.memory_type = static_cast<memory_operand::type>(size_type >> 2 & 0x03);
+		out.memory.memory_type = static_cast<memory_operand::type>(size_type >> 2 & 0x07);
 		disassemble_memory_data<unsafe>(bytecode, out.memory, pc);
 	}
 	template<bool unsafe>
