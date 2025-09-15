@@ -303,5 +303,8 @@ namespace unqlang::compiler {
 				}
 			}
 		}
+		// if we reach here, we cannot guarantee that all paths return
+		out_scope->all_paths_return = false;
+		return false;
 	}
 } // unqlang::compiler

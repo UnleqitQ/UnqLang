@@ -2345,10 +2345,51 @@ namespace unqlang::compiler {
 						throw std::logic_error("Unknown primitive type");
 					}();
 					// get the base address into target_reg
-					compile_primitive_expression(
-						left, context, program, current_scope,
-						target_reg, used_regs, modified_regs, statement_index
-					);
+					if (left_type.kind == analysis::types::type_node::kind_t::POINTER) {
+						compile_primitive_expression(
+							left, context, program, current_scope,
+							target_reg, used_regs, modified_regs, statement_index
+						);
+					}
+					else if (left_type.kind == analysis::types::type_node::kind_t::ARRAY) {
+						// arrays decay to pointers, so we need the address of the first element
+						assembly::assembly_program_t temp_program;
+						auto ref = compile_reference(
+							left, context, temp_program,
+							current_scope, used_regs, modified_regs, statement_index
+						);
+						regmask ref_regs = get_containing_regs(ref);
+						regmask overlap = ref_regs & used_regs;
+						// save overlapping registers
+						std::vector<machine::register_t> saved_regs;
+						for (const auto r : regmask::USABLE_REGISTERS) {
+							if (overlap.get(r) && r != target_reg.id) {
+								program.emplace_back(assembly::assembly_instruction(
+									machine::operation::PUSH,
+									assembly::assembly_operand{r}
+								));
+								saved_regs.emplace_back(r);
+							}
+						}
+						// insert the temp program now
+						program.insert(program.end(), temp_program.begin(), temp_program.end());
+						// load address into target_reg
+						program.emplace_back(assembly::assembly_instruction(
+							machine::operation::LEA,
+							assembly::assembly_result{target_reg},
+							ref
+						));
+						// now restore the saved registers
+						for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
+							program.emplace_back(assembly::assembly_instruction(
+								machine::operation::POP,
+								assembly::assembly_result{*it}
+							));
+						}
+					}
+					else {
+						throw std::logic_error("Internal error: Unknown array subscript left type");
+					}
 					if (right.kind == analysis::expressions::expression_node::kind_t::LITERAL) {
 						// if the index is a literal, we can do this more efficiently
 						const auto& lit = std::get<analysis::expressions::literal_expression>(right.value);
@@ -4133,6 +4174,8 @@ namespace unqlang::compiler {
 		switch (decl.kind) {
 			case analysis::statements::declaration_statement::kind_t::VARIABLE: {
 				const auto& var_decl = std::get<analysis::statements::declaration_variable_statement>(decl.declaration);
+				program.emplace_back(assembly::assembly_component::type::COMMENT,
+					std::format("{} {}", var_decl.type, var_decl.name));
 				/*program.emplace_back(assembly::assembly_instruction{
 					machine::operation::SUB,
 					assembly::assembly_result{machine::register_id::esp},
@@ -4148,6 +4191,8 @@ namespace unqlang::compiler {
 				if (var_decl.initializer.has_value()) {
 					// optimize the initializer
 					auto optimized_initializer = analysis::expressions::optimize_expression(*var_decl.initializer);
+					program.emplace_back(assembly::assembly_component::type::COMMENT,
+						std::format("{} = {}", var_decl.name, optimized_initializer));
 					// compile the initializer
 					compile_assignment(
 						assembly::assembly_memory(
@@ -4199,6 +4244,8 @@ namespace unqlang::compiler {
 			if (clause.condition.has_value()) {
 				// optimize the condition
 				auto optimized_condition = analysis::expressions::optimize_expression(*clause.condition);
+				program.emplace_back(assembly::assembly_component::type::COMMENT,
+					std::format("{}if ({})", i == 0 ? "" : "else ", optimized_condition));
 				// compile the condition
 				// if false jump to next clause
 				std::string body_label = label_prefix + std::to_string(statement_index) + "_if_clause_" + std::to_string(i) +
@@ -4224,6 +4271,9 @@ namespace unqlang::compiler {
 				// else clause must be the last one
 				throw std::runtime_error("Else clause must be the last clause in an if statement");
 			}
+			else {
+				program.emplace_back(assembly::assembly_component::type::COMMENT, "else");
+			}
 			if (!constant_condition || constant_value) {
 				// compile the body
 				// first create a new scope
@@ -4237,11 +4287,13 @@ namespace unqlang::compiler {
 					&context,
 					variable_storage,
 				};
+				program.emplace_back(assembly::assembly_component::type::COMMENT, "{");
 				compile_block_statement(
 					clause.body, child_context, program, *child_scope.child,
 					used_regs, modified_regs,
 					label_prefix + "if" + std::to_string(statement_index) + "_c" + std::to_string(i) + "_"
 				);
+				program.emplace_back(assembly::assembly_component::type::COMMENT, "}");
 				bool clause_returns = child_scope.child->all_paths_return;
 				all_return &= clause_returns;
 				// jump to the end
@@ -4251,6 +4303,10 @@ namespace unqlang::compiler {
 						assembly::assembly_operand{end_label}
 					));
 				}
+			}
+			else {
+				// the condition is always false, skip the body
+				program.emplace_back(assembly::assembly_component::type::COMMENT, "{}");
 			}
 			// next clause label
 			if (!is_last_clause) {
@@ -4280,10 +4336,12 @@ namespace unqlang::compiler {
 			throw std::runtime_error("Do-while loops not implemented yet");
 		std::string start_label = label_prefix + std::to_string(statement_index) + "_while_start";
 		std::string end_label = label_prefix + std::to_string(statement_index) + "_while_end";
+		auto condition = analysis::expressions::optimize_expression(while_stmt.condition);
+		program.emplace_back(assembly::assembly_component::type::COMMENT,
+			std::format("while ({})", condition));
 		program.emplace_back(start_label);
 		// compile the condition
 		std::string body_label = label_prefix + std::to_string(statement_index) + "_while_body";
-		auto condition = analysis::expressions::optimize_expression(while_stmt.condition);
 		assembly::assembly_program_t cond_program;
 		auto info = compile_conditional_jump(
 			condition, true, end_label, body_label,
@@ -4307,6 +4365,7 @@ namespace unqlang::compiler {
 			// while condition is not constant, we need to keep the condition code
 			program.insert(program.end(), cond_program.begin(), cond_program.end());
 		}
+		program.emplace_back(assembly::assembly_component::type::COMMENT, "{");
 		if (info.skip_jump) {
 			// we need to add the body label
 			program.emplace_back(body_label);
@@ -4327,6 +4386,7 @@ namespace unqlang::compiler {
 			while_stmt.body, child_context, program, *child_scope.child,
 			used_regs, modified_regs, label_prefix + "w" + std::to_string(statement_index) + "_"
 		);
+		program.emplace_back(assembly::assembly_component::type::COMMENT, "}");
 		// jump back to the start
 		program.push_back(assembly::assembly_instruction(
 			machine::operation::JMP,
@@ -4474,6 +4534,10 @@ namespace unqlang::compiler {
 			analysis::expressions::optimize_expression(
 				expr_stmt
 			);
+		program.emplace_back(assembly::assembly_component::type::COMMENT, std::format(
+			"{}",
+			optimized_expr
+		));
 		// we don't care about the result, so we can use any register and not save it
 		machine::register_id target_reg_id = find_free_register(
 			used_regs,
