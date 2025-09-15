@@ -400,6 +400,16 @@ namespace unqlang {
 				},
 				"IntegerLiteral"
 			);
+		const ast_expression_parser_t ast_boolean_parser =
+			(util::keyword("true") || util::keyword("false")).map<std::shared_ptr<ast_expression_node>>(
+				[](const lexer_token& tok) {
+					return util::make_ast_expression_node(ast_expression_node::type_t::Literal, ast_expression_literal(
+						ast_expression_literal::type_t::Boolean,
+						std::get<std::string>(tok.value) == "true"
+					));
+				},
+				"BooleanLiteral"
+			);
 		const ast_expression_parser_t ast_string_parser =
 			util::token_type(lexer_token::type_t::String).map<std::shared_ptr<ast_expression_node>>(
 				[](const lexer_token& tok) {
@@ -470,9 +480,11 @@ namespace unqlang {
 			(util::punctuation('(') > ref_ast_expression_parser < util::punctuation(')')).rename("ParenthesizedExpression");
 		const ast_expression_parser_t ast_l0_identifier_parser = ast_identifier_parser.rename("Identifier");
 		const ast_expression_parser_t ast_l0_integer_parser = ast_integer_parser.rename("IntegerLiteral");
+		const ast_expression_parser_t ast_l0_boolean_parser = ast_boolean_parser.rename("BooleanLiteral");
 		const ast_expression_parser_t ast_l0_expression_parser = (
 			ast_l0_parenthesized_expression_parser ||
 			ast_l0_identifier_parser ||
+			ast_l0_boolean_parser ||
 			ast_l0_integer_parser ||
 			ast_string_parser
 		).rename("ExpressionLevel0");
