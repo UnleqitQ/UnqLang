@@ -154,7 +154,7 @@ int main() {
 		return 1;
 	}
 
-	std::filesystem::path source_path = "../programs/multi_fibonacci.unq";
+	std::filesystem::path source_path = "../programs/struct_test.unq";
 	std::string source_code;
 	try {
 		if (!std::filesystem::exists(source_path)) {

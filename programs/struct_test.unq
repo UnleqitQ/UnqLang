@@ -1,0 +1,81 @@
+struct args {
+    int n;
+    int d;
+    int e;
+};
+
+int multi_fibonacci(args* a) {
+    int n = a->n;
+    int d = a->d;
+    int e = a->e;
+    /*putc('f');
+    putc('(');
+    puti(n);
+    putc(',');
+    puti(d);
+    putc(',');
+    puti(e);
+    putc(')');*/
+    if (n <= d) {
+        //putc('='); putc('1'); putc('\n');
+        return 1;
+    }
+    else {
+        //putc(':'); putc('\n');
+        int i = 0;
+        int result = 0;
+        while ((i < e) && (i + d < n)) {
+            args new_args;
+            new_args.n = n - d - i;
+            new_args.d = d;
+            new_args.e = e;
+            result = result + multi_fibonacci(&new_args);
+            //result = result + multi_fibonacci(n - d - i, d, e);
+            ++i;
+        }
+        /*putc('f');
+        putc('(');
+        puti(n);
+        putc(',');
+        puti(d);
+        putc(',');
+        puti(e);
+        putc(')');
+        putc('='); puti(result); putc('\n');*/
+        return result;
+    }
+}
+
+int main() {
+    int n = 11;
+    int d = 1;
+    int e = 2;
+    args a;
+    a.n = n;
+    a.d = d;
+    a.e = e;
+    int result = multi_fibonacci(&a);
+    //int result = multi_fibonacci(n, d, e);
+    putc('n');
+    putc('=');
+    //puts("multi_fibonacci(");
+    puti(n);
+    putc('\n');
+    //puts(", ");
+    putc('d');
+    putc('=');
+    puti(d);
+    putc('\n');
+    //puts(", ");
+    putc('e');
+    putc('=');
+    puti(e);
+    putc('\n');
+    //puts(") = ");
+    putc('r');
+    putc('=');
+    puti(result);
+    putc('\n');
+    //puts("\n");
+    return 0;
+}
