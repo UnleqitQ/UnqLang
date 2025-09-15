@@ -1817,6 +1817,42 @@ namespace unqlang::compiler {
 			}
 			return;
 		}
+		if (dest_type.kind == analysis::types::type_node::kind_t::ARRAY) {
+			assembly::assembly_program_t temp_program;
+			auto ref = compile_reference(
+				expr, context, temp_program,
+				current_scope, used_regs, modified_regs, statement_index
+			);
+			regmask ref_regs = get_containing_regs(ref);
+			regmask overlap = ref_regs & used_regs;
+			// save overlapping registers
+			std::vector<machine::register_t> saved_regs;
+			for (const auto r : regmask::USABLE_REGISTERS) {
+				if (overlap.get(r) && r != target_reg.id) {
+					program.emplace_back(assembly::assembly_instruction(
+						machine::operation::PUSH,
+						assembly::assembly_operand{r}
+					));
+					saved_regs.emplace_back(r);
+				}
+			}
+			// insert the temp program now
+			program.insert(program.end(), temp_program.begin(), temp_program.end());
+			// load address into target_reg
+			program.emplace_back(assembly::assembly_instruction(
+				machine::operation::LEA,
+				assembly::assembly_result{target_reg},
+				ref
+			));
+			// now restore the saved registers
+			for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
+				program.emplace_back(assembly::assembly_instruction(
+					machine::operation::POP,
+					assembly::assembly_result{*it}
+				));
+			}
+			return;
+		}
 		if (dest_type.kind == analysis::types::type_node::kind_t::POINTER) {
 			auto pointer_type = std::get<analysis::types::pointer_type>(dest_type.value);
 			auto pointee_type = context.global_context->type_system->resolved_type(*pointer_type.pointee_type);
