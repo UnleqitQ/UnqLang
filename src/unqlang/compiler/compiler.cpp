@@ -923,6 +923,21 @@ namespace unqlang::compiler {
 				}
 				// if it is a union, just return the base object reference
 				if (object_type.kind == analysis::types::type_node::kind_t::UNION) {
+					if (member_access.pointer) {
+						machine::register_id mem_reg = find_free_register(
+							used_regs,
+							{
+								machine::register_id::eax, machine::register_id::ecx, machine::register_id::edx,
+								machine::register_id::ebx
+							}
+						);
+						modified_regs.set(mem_reg, true);
+						compile_primitive_expression(
+							*member_access.object, context, program,
+							current_scope, mem_reg, used_regs, modified_regs, statement_index
+						);
+						return assembly::assembly_memory(mem_reg);
+					}
 					return compile_reference(
 						*member_access.object, context, program,
 						current_scope, used_regs, modified_regs, statement_index
@@ -934,10 +949,30 @@ namespace unqlang::compiler {
 				auto member_info =
 					context.global_context->type_system->get_struct_member_info(struct_type, member_access.member);
 				// get reference to base object
-				auto base_ref = compile_reference(
-					*member_access.object, context, program,
-					current_scope, used_regs, modified_regs, statement_index
-				);
+				assembly::assembly_memory base_ref;
+				if (member_access.pointer) {
+					// need to dereference first
+					// compile the inner expression to a register
+					// find a free register or use eax (order to check: eax, ecx, edx, ebx)
+					machine::register_id addr_reg = find_free_register(
+						used_regs,
+						{machine::register_id::eax, machine::register_id::ecx, machine::register_id::edx, machine::register_id::ebx}
+					);
+					modified_regs.set(addr_reg, true);
+					compile_primitive_expression(
+						*member_access.object, context, program,
+						current_scope, addr_reg, used_regs, modified_regs, statement_index
+					);
+					// now addr_reg contains the address of the struct
+					base_ref = assembly::assembly_memory(addr_reg);
+				}
+				else {
+					// just get the reference of the object
+					base_ref = compile_reference(
+						*member_access.object, context, program,
+						current_scope, used_regs, modified_regs, statement_index
+					);
+				}
 				switch (base_ref.memory_type) {
 					case assembly::assembly_memory::type::DIRECT: {
 						// direct memory access, just add offset to address
