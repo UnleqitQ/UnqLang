@@ -4549,6 +4549,8 @@ namespace unqlang::compiler {
 		std::string label_prefix
 	) {
 		bool all_return = true;
+		bool has_else = if_stmt.clauses.size() > 0 &&
+			!if_stmt.clauses.back().condition.has_value();
 		std::string end_label = label_prefix + std::to_string(statement_index) + "_if_end";
 		for (size_t i = 0; i < if_stmt.clauses.size(); ++i) {
 			bool is_last_clause = (i == if_stmt.clauses.size() - 1);
@@ -4634,7 +4636,7 @@ namespace unqlang::compiler {
 				break;
 			}
 		}
-		if (!all_return) {
+		if (!all_return || !has_else) {
 			// end label
 			program.emplace_back(end_label);
 		}
