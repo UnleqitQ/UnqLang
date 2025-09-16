@@ -179,7 +179,9 @@ namespace unqlang::compiler {
 							all_paths_return = false;
 					}
 					statement_index++;
-					if (all_paths_return) {
+					if (all_paths_return && mif.branches.size() > 0 && mif.branches.back().condition == nullptr) {
+						// all branches return and there is an else branch
+						// so we can say that all paths return
 						out_scope->all_paths_return = true;
 						return true;
 					}
