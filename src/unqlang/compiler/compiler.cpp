@@ -1299,7 +1299,7 @@ namespace unqlang::compiler {
 								machine::data_size_t::DWORD,
 								assembly::assembly_memory(
 									machine::register_t{machine::register_id::ebp},
-									static_cast<int32_t>(-static_cast<int32_t>(var.offset))
+									-static_cast<int32_t>(var.offset)
 								)
 							})
 						));
@@ -2420,8 +2420,7 @@ namespace unqlang::compiler {
 								analysis::types::to_data_size(element_prim_type),
 								assembly::assembly_memory(
 									target_reg.id,
-									static_cast<int32_t>(index * element_size
-									)
+									static_cast<int32_t>(index * element_size)
 								)
 							})
 						));
