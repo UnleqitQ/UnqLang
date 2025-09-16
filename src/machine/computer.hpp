@@ -34,6 +34,10 @@ namespace machine {
 		computer(const ram& r, const register_file& reg)
 			: m_ram(r), m_registers(reg) {
 		}
+
+		void register_peripheral(const peripheral& peripheral) {
+			m_peripherals[peripheral.port] = peripheral;
+		}
 		void load_program(const simple_program_t& program, uint32_t start_address = 0);
 		void load_program(const program_t& program, uint32_t start_address = 0);
 		void step(); // Execute a single instruction
