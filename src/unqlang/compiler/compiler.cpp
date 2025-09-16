@@ -3998,7 +3998,7 @@ namespace unqlang::compiler {
 							}
 							// now jump if zero/non-zero
 							program.push_back(assembly::assembly_instruction(
-								invert ? machine::operation::JZ : machine::operation::JNZ,
+								invert ? machine::operation::JNZ : machine::operation::JZ,
 								assembly::assembly_operand(target_label)
 							));
 							if (needs_skip) {
