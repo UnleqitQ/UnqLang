@@ -1273,7 +1273,8 @@ namespace unqlang::compiler {
 		regmask used_regs,
 		regmask& modified_regs,
 		const analysis::types::type_node& dest_type,
-		uint32_t statement_index
+		uint32_t statement_index,
+		bool store_value
 	) {
 		switch (expr.kind) {
 			case analysis::expressions::expression_node::kind_t::LITERAL: {
@@ -1442,6 +1443,239 @@ namespace unqlang::compiler {
 								assembly::assembly_memory(target_reg.id)
 							})
 						));
+						return;
+					}
+					case analysis::expressions::unary_expression::operator_t::PRE_INC:
+					case analysis::expressions::unary_expression::operator_t::PRE_DEC: {
+						const auto operand_type = unary.operand->get_type(
+							*context.variable_storage,
+							*context.global_context->function_storage,
+							*context.global_context->type_system
+						);
+						auto resolved_operand_type = context.global_context->type_system->resolved_type(operand_type);
+						if (resolved_operand_type.kind != analysis::types::type_node::kind_t::POINTER) {
+							throw std::runtime_error("Operand of increment/decrement must be a pointer type");
+						}
+						auto ptr_type = std::get<analysis::types::pointer_type>(resolved_operand_type.value);
+						if (!context.global_context->type_system->is_equivalent(dest_type, *ptr_type.pointee_type)) {
+							throw std::runtime_error("Type of operand does not match target type");
+						}
+						uint32_t element_size = context.global_context->type_system->get_type_size(dest_type);
+						if (element_size == 0) {
+							// void types are treated as size 1
+							element_size = 1;
+						}
+						// compile the operand to a reference
+						assembly::assembly_program_t temp_program;
+						used_regs.set(target_reg.id, false);
+						auto ref = compile_reference(
+							*unary.operand, context, temp_program,
+							current_scope, used_regs, modified_regs, statement_index
+						);
+						regmask ref_regs = get_containing_regs(ref);
+						std::vector<machine::register_t> saved_regs;
+						regmask overlap = ref_regs & used_regs;
+						// save overlapping registers
+						for (const auto r : regmask::USABLE_REGISTERS) {
+							if (overlap.get(r)) {
+								program.emplace_back(assembly::assembly_instruction(
+									machine::operation::PUSH,
+									assembly::assembly_operand{r}
+								));
+								saved_regs.emplace_back(r);
+							}
+						}
+						// insert the temp program now
+						program.insert(program.end(), temp_program.begin(), temp_program.end());
+						// increment/decrement the pointer
+						if (element_size > 1) {
+							program.push_back(assembly::assembly_instruction(
+								unary.op == analysis::expressions::unary_expression::operator_t::PRE_INC
+								? machine::operation::ADD
+								: machine::operation::SUB,
+								assembly::assembly_result(assembly::assembly_memory_pointer(machine::data_size_t::DWORD, ref)),
+								assembly::assembly_operand(static_cast<int32_t>(element_size))
+							));
+						}
+						else {
+							program.push_back(assembly::assembly_instruction(
+								unary.op == analysis::expressions::unary_expression::operator_t::PRE_INC
+								? machine::operation::INC
+								: machine::operation::DEC,
+								assembly::assembly_result(assembly::assembly_memory_pointer(machine::data_size_t::DWORD, ref))
+							));
+						}
+						// load the updated pointer into target_reg
+						if (store_value)
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::MOV,
+								assembly::assembly_result({target_reg.id, machine::register_access::dword}),
+								assembly::assembly_operand(
+									assembly::assembly_memory_pointer(machine::data_size_t::DWORD, ref)
+								)
+							));
+						// now restore the saved registers
+						for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
+							program.emplace_back(assembly::assembly_instruction(
+								machine::operation::POP,
+								assembly::assembly_result{*it}
+							));
+						}
+						return;
+					}
+					case analysis::expressions::unary_expression::operator_t::POST_INC:
+					case analysis::expressions::unary_expression::operator_t::POST_DEC: {
+						if (!store_value) {
+							// if the value is not needed, just compile as pre-inc/pre-dec
+							analysis::expressions::unary_expression new_unary{
+								unary.op == analysis::expressions::unary_expression::operator_t::POST_INC
+								? analysis::expressions::unary_expression::operator_t::PRE_INC
+								: analysis::expressions::unary_expression::operator_t::PRE_DEC,
+								unary.operand
+							};
+							compile_pointer_expression(
+								new_unary, context, program, current_scope,
+								target_reg, used_regs, modified_regs, dest_type,
+								statement_index, store_value
+							);
+							return;
+						}
+						assembly::assembly_program_t temp_program;
+						used_regs.set(target_reg.id, true);
+						auto ref = compile_reference(
+							*unary.operand, context, temp_program,
+							current_scope, used_regs, modified_regs, statement_index
+						);
+						regmask ref_regs = get_containing_regs(ref);
+						if (ref_regs.get(target_reg.id)) {
+							machine::register_id tmp_reg = find_free_register(
+								used_regs,
+								{
+									machine::register_id::eax, machine::register_id::ecx, machine::register_id::edx,
+									machine::register_id::ebx
+								},
+								{target_reg.id}
+							);
+							modified_regs.set(tmp_reg, true);
+							// need to save tmp_reg
+							bool tmp_is_used = used_regs.get(tmp_reg);
+							if (tmp_is_used) {
+								program.push_back(assembly::assembly_instruction(
+									machine::operation::PUSH,
+									assembly::assembly_operand({tmp_reg, machine::register_access::dword})
+								));
+							}
+							used_regs.set(tmp_reg, false);
+							std::vector<assembly::assembly_result> saved_regs;
+							for (const auto r : regmask::USABLE_REGISTERS) {
+								if (ref_regs.get(r) && used_regs.get(r) && r != target_reg.id && r != tmp_reg) {
+									program.emplace_back(assembly::assembly_instruction(
+										machine::operation::PUSH,
+										assembly::assembly_operand{r}
+									));
+									saved_regs.emplace_back(r);
+								}
+							}
+							// insert the temp program now
+							program.insert(program.end(), temp_program.begin(), temp_program.end());
+							// load the current pointer into tmp_reg
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::LEA,
+								assembly::assembly_result({tmp_reg, machine::register_access::dword}),
+								ref
+							));
+							// restore the saved registers
+							for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
+								program.emplace_back(assembly::assembly_instruction(
+									machine::operation::POP,
+									assembly::assembly_result{*it}
+								));
+							}
+							// load the pointer value into target_reg
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::MOV,
+								assembly::assembly_result({target_reg.id, machine::register_access::dword}),
+								assembly::assembly_operand({
+									machine::data_size_t::DWORD,
+									assembly::assembly_memory(tmp_reg)
+								})
+							));
+							// increment/decrement the pointer
+							uint32_t element_size = context.global_context->type_system->get_type_size(dest_type);
+							if (element_size > 1) {
+								program.push_back(assembly::assembly_instruction(
+									unary.op == analysis::expressions::unary_expression::operator_t::POST_INC
+									? machine::operation::ADD
+									: machine::operation::SUB,
+									assembly::assembly_result(assembly::assembly_memory_pointer(machine::data_size_t::DWORD, ref)),
+									assembly::assembly_operand(static_cast<int32_t>(element_size))
+								));
+							}
+							else {
+								program.push_back(assembly::assembly_instruction(
+									unary.op == analysis::expressions::unary_expression::operator_t::POST_INC
+									? machine::operation::INC
+									: machine::operation::DEC,
+									assembly::assembly_result(assembly::assembly_memory_pointer(machine::data_size_t::DWORD, ref))
+								));
+							}
+							// restore tmp_reg if needed
+							if (tmp_is_used) {
+								program.push_back(assembly::assembly_instruction(
+									machine::operation::POP,
+									assembly::assembly_operand({tmp_reg, machine::register_access::dword})
+								));
+							}
+							return;
+						}
+						regmask overlap = ref_regs & used_regs;
+						// save overlapping registers
+						std::vector<machine::register_t> saved_regs;
+						for (const auto r : regmask::USABLE_REGISTERS) {
+							if (overlap.get(r) && r != target_reg.id) {
+								program.emplace_back(assembly::assembly_instruction(
+									machine::operation::PUSH,
+									assembly::assembly_operand{r}
+								));
+								saved_regs.emplace_back(r);
+							}
+						}
+						// insert the temp program now
+						program.insert(program.end(), temp_program.begin(), temp_program.end());
+						// load the current value into target_reg
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::MOV,
+							assembly::assembly_result({target_reg.id, machine::register_access::dword}),
+							assembly::assembly_operand(
+								assembly::assembly_memory_pointer(machine::data_size_t::DWORD, ref)
+							)
+						));
+						// increment/decrement the pointer
+						uint32_t element_size = context.global_context->type_system->get_type_size(dest_type);
+						if (element_size > 1) {
+							program.push_back(assembly::assembly_instruction(
+								unary.op == analysis::expressions::unary_expression::operator_t::POST_INC
+								? machine::operation::ADD
+								: machine::operation::SUB,
+								assembly::assembly_result(assembly::assembly_memory_pointer(machine::data_size_t::DWORD, ref)),
+								assembly::assembly_operand(static_cast<int32_t>(element_size))
+							));
+						}
+						else {
+							program.push_back(assembly::assembly_instruction(
+								unary.op == analysis::expressions::unary_expression::operator_t::POST_INC
+								? machine::operation::INC
+								: machine::operation::DEC,
+								assembly::assembly_result(assembly::assembly_memory_pointer(machine::data_size_t::DWORD, ref))
+							));
+						}
+						// now restore the saved registers
+						for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
+							program.emplace_back(assembly::assembly_instruction(
+								machine::operation::POP,
+								assembly::assembly_result{*it}
+							));
+						}
 						return;
 					}
 					default:
@@ -1920,8 +2154,8 @@ namespace unqlang::compiler {
 			auto pointer_type = std::get<analysis::types::pointer_type>(dest_type.value);
 			auto pointee_type = context.global_context->type_system->resolved_type(*pointer_type.pointee_type);
 			compile_pointer_expression(
-				expr, context, program, current_scope,
-				target_reg, used_regs, modified_regs, pointee_type, statement_index
+				expr, context, program, current_scope, target_reg,
+				used_regs, modified_regs, pointee_type, statement_index, store_value
 			);
 			return;
 		}
@@ -2071,48 +2305,55 @@ namespace unqlang::compiler {
 					case analysis::expressions::unary_expression::operator_t::MINUS: {
 						compile_primitive_expression(
 							*unary.operand, context, program, current_scope,
-							target_reg, used_regs, modified_regs, statement_index
+							target_reg, used_regs, modified_regs, statement_index, store_value
 						);
 						// negate the value in target_reg
-						program.push_back(assembly::assembly_instruction(
-							machine::operation::NEG,
-							assembly::assembly_result(target_reg)
-						));
+						if (store_value)
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::NEG,
+								assembly::assembly_result(target_reg)
+							));
 						return;
 					}
 					case analysis::expressions::unary_expression::operator_t::NOT: {
 						compile_primitive_expression(
 							*unary.operand, context, program, current_scope,
-							target_reg, used_regs, modified_regs, statement_index
+							target_reg, used_regs, modified_regs, statement_index,
+							store_value
 						);
 						// perform bitwise NOT on the value in target_reg
-						program.push_back(assembly::assembly_instruction(
-							machine::operation::NOT,
-							assembly::assembly_result(target_reg)
-						));
+						if (store_value)
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::NOT,
+								assembly::assembly_result(target_reg)
+							));
 						return;
 					}
 					case analysis::expressions::unary_expression::operator_t::LNOT: {
 						compile_primitive_expression(
 							*unary.operand, context, program, current_scope,
-							target_reg.id, used_regs, modified_regs, statement_index
+							target_reg.id, used_regs, modified_regs, statement_index,
+							store_value
 						);
 						// compare the value in target_reg with 0 and set to 1 if equal, else 0
-						program.push_back(assembly::assembly_instruction(
-							machine::operation::CMP,
-							assembly::assembly_operand(target_reg.id),
-							assembly::assembly_operand(0)
-						));
-						program.push_back(assembly::assembly_instruction(
-							machine::operation::SETZ,
-							assembly::assembly_result(target_reg)
-						));
+						if (store_value) {
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::CMP,
+								assembly::assembly_operand(target_reg.id),
+								assembly::assembly_operand(0)
+							));
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::SETZ,
+								assembly::assembly_result(target_reg)
+							));
+						}
 						return;
 					}
 					case analysis::expressions::unary_expression::operator_t::PLUS: {
 						compile_primitive_expression(
 							*unary.operand, context, program, current_scope,
-							target_reg, used_regs, modified_regs, statement_index
+							target_reg, used_regs, modified_regs, statement_index,
+							store_value
 						);
 						return;
 					}
@@ -2142,14 +2383,15 @@ namespace unqlang::compiler {
 						// insert the temp program now
 						program.insert(program.end(), temp_program.begin(), temp_program.end());
 						// load the value from the reference into target_reg
-						program.push_back(assembly::assembly_instruction(
-							machine::operation::MOV,
-							assembly::assembly_result(target_reg),
-							assembly::assembly_operand({
-								analysis::types::to_data_size(prim_type),
-								ref
-							})
-						));
+						if (store_value)
+							program.push_back(assembly::assembly_instruction(
+								machine::operation::MOV,
+								assembly::assembly_result(target_reg),
+								assembly::assembly_operand({
+									analysis::types::to_data_size(prim_type),
+									ref
+								})
+							));
 						// restore saved registers
 						for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
 							program.emplace_back(assembly::assembly_instruction(
@@ -2161,6 +2403,19 @@ namespace unqlang::compiler {
 					}
 					case analysis::expressions::unary_expression::operator_t::POST_DEC:
 					case analysis::expressions::unary_expression::operator_t::POST_INC: {
+						if (!store_value) {
+							compile_primitive_expression(
+								analysis::expressions::make_unary(
+									unary.op == analysis::expressions::unary_expression::operator_t::POST_INC
+									? analysis::expressions::unary_expression::operator_t::PRE_INC
+									: analysis::expressions::unary_expression::operator_t::PRE_DEC,
+									*unary.operand
+								), context, program, current_scope,
+								target_reg, used_regs, modified_regs, statement_index,
+								false
+							);
+							return;
+						}
 						auto operand_prim_type = std::get<analysis::types::primitive_type>(operand_type.value);
 						used_regs.set(target_reg.id, true);
 						// get reference to the operand

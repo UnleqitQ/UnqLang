@@ -183,6 +183,7 @@ namespace unqlang::compiler {
 	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
 	 * @param dest_type The expected type of the pointer's pointee.
 	 * @param statement_index The index of the statement being compiled
+	 * @param store_value Whether to store the computed value in the target register. If false, the expression is evaluated but the result may not be stored.
 	 */
 	void compile_pointer_expression(
 		const analysis::expressions::expression_node& expr,
@@ -193,7 +194,8 @@ namespace unqlang::compiler {
 		regmask used_regs,
 		regmask& modified_regs,
 		const analysis::types::type_node& dest_type,
-		uint32_t statement_index
+		uint32_t statement_index,
+		bool store_value = true
 	);
 
 	struct conditional_jump_info {
