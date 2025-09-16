@@ -629,9 +629,35 @@ struct std::formatter<
 			case unqlang::analysis::expressions::literal_expression::kind_t::DOUBLE:
 				repr = std::to_string(std::get<double>(lit.value));
 				break;
-			case unqlang::analysis::expressions::literal_expression::kind_t::STRING:
-				repr = std::format("\"{}\"", std::get<std::string>(lit.value));
+			case unqlang::analysis::expressions::literal_expression::kind_t::STRING: {
+				std::string s = std::get<std::string>(lit.value);
+				std::string escaped;
+				escaped.reserve(s.size());
+				for (char c : s) {
+					switch (c) {
+						case '\n':
+							escaped += "\\n";
+							break;
+						case '\t':
+							escaped += "\\t";
+							break;
+						case '\r':
+							escaped += "\\r";
+							break;
+						case '\"':
+							escaped += "\\\"";
+							break;
+						case '\\':
+							escaped += "\\\\";
+							break;
+						default:
+							escaped += c;
+							break;
+					}
+				}
+				repr = std::format("\"{}\"", escaped);
 				break;
+			}
 			case unqlang::analysis::expressions::literal_expression::kind_t::BOOL:
 				repr = std::get<bool>(lit.value) ? "true" : "false";
 				break;
