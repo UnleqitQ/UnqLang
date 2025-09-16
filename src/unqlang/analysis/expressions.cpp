@@ -905,6 +905,7 @@ namespace unqlang::analysis::expressions {
 						));
 					}
 				}
+				break;
 			}
 			case binary_expression::operator_t::LAND: {
 				// x && true  -> x
