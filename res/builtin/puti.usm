@@ -11,7 +11,7 @@
     cmp eax, 0
     jge func_puti_loop
     neg eax
-    out '-'
+    out '-', 0x01
 func_puti_loop:
     mov edx, eax
     mod edx, 10
@@ -23,7 +23,7 @@ func_puti_loop:
 func_puti_print:
     pop edx
     add dl, '0'
-    out edx
+    out edx, 0x01
     dec ecx
     jnz func_puti_print
     pop edx
