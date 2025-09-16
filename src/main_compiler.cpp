@@ -4,6 +4,7 @@
 #include <iostream>
 #include <ranges>
 #include <typeinfo>
+#include <format>
 
 #include <cmrc/cmrc.hpp>
 
@@ -154,7 +155,7 @@ int main() {
 		return 1;
 	}
 
-	std::filesystem::path source_path = "../programs/struct_test.unq";
+	std::filesystem::path source_path = "../programs/gol.unq";
 	std::string source_code;
 	try {
 		if (!std::filesystem::exists(source_path)) {
@@ -210,7 +211,7 @@ int main() {
 	}
 	std::cout << "Full assembly program after compiling entry function 'main':" << std::endl;
 	for (const auto& instr : full_program) {
-		std::cout << instr << std::endl;
+		std::cout << std::format("{:i}", instr) << std::endl;
 	}
 	std::cout << std::endl;
 	std::cout << std::string(80, '=') << std::endl;
