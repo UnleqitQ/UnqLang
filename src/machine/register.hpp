@@ -6,6 +6,8 @@
 #include <array>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
+#include <format>
 
 #include "ram.hpp"
 
@@ -170,5 +172,254 @@ namespace machine {
 		}
 	};
 }
+
+template<>
+struct std::formatter<machine::register_t> : std::formatter<std::string> {
+	bool uppercase{false};
+
+	constexpr auto parse(std::format_parse_context& ctx) {
+		auto pos = ctx.begin();
+		for (; pos != ctx.end() && *pos != '}'; ++pos) {
+			auto c = *pos;
+			if (c == 'u' || c == 'U') {
+				uppercase = true;
+			}
+			if (c == 'l' || c == 'L') {
+				uppercase = false;
+			}
+		}
+		return pos;
+	}
+	auto format(const machine::register_t& reg, auto& ctx) const {
+		auto id = reg.id;
+		auto access = reg.access;
+		switch (id) {
+			case machine::register_id::eax:
+				switch (access) {
+					case machine::register_access::dword:
+						return std::formatter<std::string>::format(uppercase ? "EAX" : "eax", ctx);
+					case machine::register_access::word:
+						return std::formatter<std::string>::format(uppercase ? "AX" : "ax", ctx);
+					case machine::register_access::low_byte:
+						return std::formatter<std::string>::format(uppercase ? "AL" : "al", ctx);
+					case machine::register_access::high_byte:
+						return std::formatter<std::string>::format(uppercase ? "AH" : "ah", ctx);
+				}
+				break;
+			case machine::register_id::ebx:
+				switch (access) {
+					case machine::register_access::dword:
+						return std::formatter<std::string>::format(uppercase ? "EBX" : "ebx", ctx);
+					case machine::register_access::word:
+						return std::formatter<std::string>::format(uppercase ? "BX" : "bx", ctx);
+					case machine::register_access::low_byte:
+						return std::formatter<std::string>::format(uppercase ? "BL" : "bl", ctx);
+					case machine::register_access::high_byte:
+						return std::formatter<std::string>::format(uppercase ? "BH" : "bh", ctx);
+				}
+				break;
+			case machine::register_id::ecx:
+				switch (access) {
+					case machine::register_access::dword:
+						return std::formatter<std::string>::format(uppercase ? "ECX" : "ecx", ctx);
+					case machine::register_access::word:
+						return std::formatter<std::string>::format(uppercase ? "CX" : "cx", ctx);
+					case machine::register_access::low_byte:
+						return std::formatter<std::string>::format(uppercase ? "CL" : "cl", ctx);
+					case machine::register_access::high_byte:
+						return std::formatter<std::string>::format(uppercase ? "CH" : "ch", ctx);
+				}
+				break;
+			case machine::register_id::edx:
+				switch (access) {
+					case machine::register_access::dword:
+						return std::formatter<std::string>::format(uppercase ? "EDX" : "edx", ctx);
+					case machine::register_access::word:
+						return std::formatter<std::string>::format(uppercase ? "DX" : "dx", ctx);
+					case machine::register_access::low_byte:
+						return std::formatter<std::string>::format(uppercase ? "DL" : "dl", ctx);
+					case machine::register_access::high_byte:
+						return std::formatter<std::string>::format(uppercase ? "DH" : "dh", ctx);
+				}
+				break;
+			case machine::register_id::esi:
+				switch (access) {
+					case machine::register_access::dword:
+						return std::formatter<std::string>::format(uppercase ? "ESI" : "esi", ctx);
+					case machine::register_access::word:
+						return std::formatter<std::string>::format(uppercase ? "SI" : "si", ctx);
+					default:
+						throw std::runtime_error("Invalid access type for this register");
+				}
+			case machine::register_id::edi:
+				switch (access) {
+					case machine::register_access::dword:
+						return std::formatter<std::string>::format(uppercase ? "EDI" : "edi", ctx);
+					case machine::register_access::word:
+						return std::formatter<std::string>::format(uppercase ? "DI" : "di", ctx);
+					default:
+						throw std::runtime_error("Invalid access type for this register");
+				}
+			case machine::register_id::esp:
+				switch (access) {
+					case machine::register_access::dword:
+						return std::formatter<std::string>::format(uppercase ? "ESP" : "esp", ctx);
+					case machine::register_access::word:
+						return std::formatter<std::string>::format(uppercase ? "SP" : "sp", ctx);
+					default:
+						throw std::runtime_error("Invalid access type for this register");
+				}
+			case machine::register_id::ebp:
+				switch (access) {
+					case machine::register_access::dword:
+						return std::formatter<std::string>::format(uppercase ? "EBP" : "ebp", ctx);
+					case machine::register_access::word:
+						return std::formatter<std::string>::format(uppercase ? "BP" : "bp", ctx);
+					default:
+						throw std::runtime_error("Invalid access type for this register");
+				}
+			case machine::register_id::eip:
+				switch (access) {
+					case machine::register_access::dword:
+						return std::formatter<std::string>::format(uppercase ? "EIP" : "eip", ctx);
+					default:
+						throw std::runtime_error("Invalid access type for this register");
+				}
+			case machine::register_id::flags:
+				return std::formatter<std::string>::format(uppercase ? "FLAGS" : "flags", ctx);
+			default:
+				return std::formatter<std::string>::format("<invalid register>", ctx);
+		}
+		return std::formatter<std::string>::format("<invalid format>", ctx);
+	}
+};
+template<>
+struct std::formatter<machine::register_id> : std::formatter<std::string> {
+	machine::register_access access{machine::register_access::dword};
+	bool uppercase{false};
+	constexpr auto parse(std::format_parse_context& ctx) {
+		auto pos = ctx.begin();
+		for (; pos != ctx.end() && *pos != '}'; ++pos) {
+			const auto c = *pos;
+			if (c == 'l' || c == 'L') {
+				access = machine::register_access::low_byte;
+				uppercase = (c == 'L');
+			}
+			else if (c == 'h' || c == 'H') {
+				access = machine::register_access::high_byte;
+				uppercase = (c == 'H');
+			}
+			else if (c == 'w' || c == 'W') {
+				access = machine::register_access::word;
+				uppercase = (c == 'W');
+			}
+			else if (c == 'd' || c == 'D') {
+				access = machine::register_access::dword;
+				uppercase = (c == 'D');
+			}
+		}
+		return pos;
+	}
+	auto format(const machine::register_id& id, auto& ctx) const {
+		return std::formatter<machine::register_t>{.uppercase = uppercase}
+			.format(machine::register_t(id, access), ctx);
+	}
+};
+template<>
+struct std::formatter<machine::flag> : std::formatter<std::string> {
+	enum class style {
+		single_letter,
+		two_letter,
+		full_name
+	} fmt_style{style::two_letter};
+	bool uppercase{true};
+	constexpr auto parse(std::format_parse_context& ctx) {
+		auto pos = ctx.begin();
+		for (; pos != ctx.end() && *pos != '}'; ++pos) {
+			auto c = *pos;
+			if (c == 's' || c == 'S') {
+				fmt_style = style::single_letter;
+				uppercase = (c == 'S');
+			}
+			else if (c == 't' || c == 'T') {
+				fmt_style = style::two_letter;
+				uppercase = (c == 'T');
+			}
+			else if (c == 'f' || c == 'F' || c == 'l' || c == 'L') {
+				fmt_style = style::full_name;
+				uppercase = (c == 'F') || (c == 'L');
+			}
+		}
+		return pos;
+	}
+	auto format(const machine::flag& f, std::format_context& ctx) const {
+		switch (f) {
+			case machine::flag::carry:
+				switch (fmt_style) {
+					case style::single_letter:
+						return std::formatter<std::string>::format(uppercase ? "C" : "c", ctx);
+					case style::two_letter:
+						return std::formatter<std::string>::format(uppercase ? "CF" : "cf", ctx);
+					case style::full_name:
+						return std::formatter<std::string>::format(uppercase ? "Carry" : "carry", ctx);
+				}
+				break;
+			case machine::flag::parity:
+				switch (fmt_style) {
+					case style::single_letter:
+						return std::formatter<std::string>::format(uppercase ? "P" : "p", ctx);
+					case style::two_letter:
+						return std::formatter<std::string>::format(uppercase ? "PF" : "pf", ctx);
+					case style::full_name:
+						return std::formatter<std::string>::format(uppercase ? "Parity" : "parity", ctx);
+				}
+				break;
+			case machine::flag::auxiliary:
+				switch (fmt_style) {
+					case style::single_letter:
+						return std::formatter<std::string>::format(uppercase ? "A" : "a", ctx);
+					case style::two_letter:
+						return std::formatter<std::string>::format(uppercase ? "AF" : "af", ctx);
+					case style::full_name:
+						return std::formatter<std::string>::format(uppercase ? "Auxiliary" : "auxiliary", ctx);
+				}
+				break;
+			case machine::flag::zero:
+				switch (fmt_style) {
+					case style::single_letter:
+						return std::formatter<std::string>::format(uppercase ? "Z" : "z", ctx);
+					case style::two_letter:
+						return std::formatter<std::string>::format(uppercase ? "ZF" : "zf", ctx);
+					case style::full_name:
+						return std::formatter<std::string>::format(uppercase ? "Zero" : "zero", ctx);
+				}
+				break;
+			case machine::flag::sign:
+				switch (fmt_style) {
+					case style::single_letter:
+						return std::formatter<std::string>::format(uppercase ? "S" : "s", ctx);
+					case style::two_letter:
+						return std::formatter<std::string>::format(uppercase ? "SF" : "sf", ctx);
+					case style::full_name:
+						return std::formatter<std::string>::format(uppercase ? "Sign" : "sign", ctx);
+				}
+				break;
+			case machine::flag::overflow:
+				switch (fmt_style) {
+					case style::single_letter:
+						return std::formatter<std::string>::format(uppercase ? "O" : "o", ctx);
+					case style::two_letter:
+						return std::formatter<std::string>::format(uppercase ? "OF" : "of", ctx);
+					case style::full_name:
+						return std::formatter<std::string>::format(uppercase ? "Overflow" : "overflow", ctx);
+				}
+				break;
+			default:
+				return std::formatter<std::string>::format("<invalid flag>", ctx);
+		}
+		return std::formatter<std::string>::format("<invalid format>", ctx);
+	}
+};
+
 
 #include "register.inl"

@@ -290,6 +290,97 @@ namespace unqlang::compiler {
 		);
 		auto resolved_src_type = context.global_context->type_system->resolved_type(src_type);
 		// we can assume the types are compatible (checked during semantic analysis)
+		if (src.kind == analysis::expressions::expression_node::kind_t::LITERAL) {
+			// literal assignment
+			auto lit = std::get<analysis::expressions::literal_expression>(src.value);
+			switch (lit.kind) {
+				case analysis::expressions::literal_expression::kind_t::STRING: {
+					if (resolved_dest_type.kind != analysis::types::type_node::kind_t::POINTER) {
+						throw std::runtime_error("Cannot assign a string literal to a non-pointer type");
+					}
+					// string literal, need to store the string in the data segment and load its address
+					auto str_lit = std::get<std::string>(lit.value);
+					uint32_t id = context.global_context->complex_literal_storage->add_string(str_lit);
+					auto label = analysis::complex_literals::string_label(id);
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::LEA,
+						assembly::assembly_result(assembly::assembly_memory_pointer(machine::data_size_t::DWORD, dest)),
+						assembly::assembly_operand(label)
+					));
+					return;
+				}
+				case analysis::expressions::literal_expression::kind_t::CHAR: {
+					if (resolved_dest_type.kind != analysis::types::type_node::kind_t::PRIMITIVE) {
+						throw std::runtime_error("Cannot assign a char literal to a non-primitive type");
+					}
+					auto dtp = std::get<analysis::types::primitive_type>(resolved_dest_type.value);
+					auto ds = analysis::types::to_data_size(dtp);
+					auto char_lit = static_cast<uint8_t>(std::get<char>(lit.value));
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result(assembly::assembly_memory_pointer(ds, dest)),
+						assembly::assembly_operand(char_lit)
+					));
+					return;
+				}
+				case analysis::expressions::literal_expression::kind_t::INT: {
+					if (resolved_dest_type.kind != analysis::types::type_node::kind_t::PRIMITIVE) {
+						throw std::runtime_error("Cannot assign an int literal to a non-primitive type");
+					}
+					auto dtp = std::get<analysis::types::primitive_type>(resolved_dest_type.value);
+					auto ds = analysis::types::to_data_size(dtp);
+					auto int_lit = std::get<int32_t>(lit.value);
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result(assembly::assembly_memory_pointer(ds, dest)),
+						assembly::assembly_operand(int_lit)
+					));
+					return;
+				}
+				case analysis::expressions::literal_expression::kind_t::BOOL: {
+					if (resolved_dest_type.kind != analysis::types::type_node::kind_t::PRIMITIVE) {
+						throw std::runtime_error("Cannot assign a bool literal to a non-primitive type");
+					}
+					auto dtp = std::get<analysis::types::primitive_type>(resolved_dest_type.value);
+					auto ds = analysis::types::to_data_size(dtp);
+					auto bool_lit = std::get<bool>(lit.value) ? 1 : 0;
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result(assembly::assembly_memory_pointer(ds, dest)),
+						assembly::assembly_operand(bool_lit)
+					));
+					return;
+				}
+				case analysis::expressions::literal_expression::kind_t::NULLPTR: {
+					if (resolved_dest_type.kind != analysis::types::type_node::kind_t::POINTER) {
+						throw std::runtime_error("Cannot assign a nullptr literal to a non-pointer type");
+					}
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result(assembly::assembly_memory_pointer(machine::data_size_t::DWORD, dest)),
+						assembly::assembly_operand(0)
+					));
+					return;
+				}
+				case analysis::expressions::literal_expression::kind_t::UINT: {
+					if (resolved_dest_type.kind != analysis::types::type_node::kind_t::PRIMITIVE) {
+						throw std::runtime_error("Cannot assign a uint literal to a non-primitive type");
+					}
+					auto dtp = std::get<analysis::types::primitive_type>(resolved_dest_type.value);
+					auto ds = analysis::types::to_data_size(dtp);
+					auto uint_lit = std::get<uint32_t>(lit.value);
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result(assembly::assembly_memory_pointer(ds, dest)),
+						assembly::assembly_operand(uint_lit)
+					));
+					return;
+				}
+				default:
+					throw std::runtime_error("Unsupported literal expression kind");
+			}
+			throw std::runtime_error("Unknown literal type");
+		}
 		if (resolved_dest_type.kind == analysis::types::type_node::kind_t::PRIMITIVE &&
 			resolved_src_type.kind == analysis::types::type_node::kind_t::PRIMITIVE) {
 			// find a free register or use eax (order to check: eax, ecx, edx, ebx)
@@ -5303,7 +5394,7 @@ namespace unqlang::compiler {
 	assembly::assembly_program_t Compiler::compile(const std::string& entry_function) {
 		assembly::assembly_program_t program;
 		this->precompile_functions();
-		program.emplace_back("--- Entry Point ---");
+		program.emplace_back(assembly::assembly_component::type::COMMENT, "--- Entry Point ---");
 		this->compile_entry(entry_function, program);
 		program.emplace_back(assembly::assembly_component::type::COMMENT, "--- Literals ---");
 		this->compile_literals(program);

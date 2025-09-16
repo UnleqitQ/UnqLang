@@ -459,3 +459,10 @@ namespace machine {
 		return 1; // Default to 1 byte for unrecognized operations
 	}
 } // namespace machine
+
+template<>
+struct std::formatter<machine::operation> : std::formatter<std::string> {
+	auto format(const machine::operation& op, auto& ctx) const {
+		return std::formatter<std::string>::format(machine::operation_to_string(op), ctx);
+	}
+};

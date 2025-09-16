@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <unordered_map>
 #include <variant>
+#include <format>
 
 #include "../machine/instruction.hpp"
 #include "../machine/ram.hpp"
@@ -121,7 +122,8 @@ namespace assembly {
 			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value(scaled_index_displacement{base, index, scale, disp}) {
 		}
 		assembly_memory(machine::register_t base, machine::register_t index, int16_t scale, extended_assembly_literal disp)
-			: memory_type(type::SCALED_INDEX_DISPLACEMENT), value(scaled_index_displacement{base, index, scale, disp.reduced()}) {
+			: memory_type(type::SCALED_INDEX_DISPLACEMENT),
+			  value(scaled_index_displacement{base, index, scale, disp.reduced()}) {
 		}
 		std::string to_string() const;
 		friend std::ostream& operator<<(std::ostream& os, const assembly_memory& mem) {
@@ -420,7 +422,7 @@ namespace assembly {
 		std::variant<
 			std::string,
 			assembly_instruction,
-			std::vector<uint8_t> // raw data
+			std::vector<uint8_t>
 		> value;
 
 		assembly_component(const std::string& label)
@@ -496,3 +498,259 @@ namespace assembly {
 
 	uint32_t program_size(const assembly_program_t& assembly_program);
 } // assembly
+
+// Formatters
+template<>
+struct std::formatter<assembly::assembly_literal> : std::formatter<std::string> {
+	auto format(const assembly::assembly_literal& lit, auto& ctx) const {
+		switch (lit.literal_type) {
+			case assembly::assembly_literal::type::NUMBER:
+				return std::formatter<std::string>::format(std::to_string(std::get<int32_t>(lit.value)), ctx);
+			case assembly::assembly_literal::type::LABEL:
+				return std::formatter<std::string>::format(std::get<std::string>(lit.value), ctx);
+		}
+		return std::formatter<std::string>::format("<invalid literal>", ctx);
+	}
+};
+template<>
+struct std::formatter<assembly::extended_assembly_literal> : std::formatter<std::string> {
+	auto format(const assembly::extended_assembly_literal& lit, auto& ctx) const {
+		switch (lit.type) {
+			case assembly::extended_assembly_literal::type_t::VALUE: {
+				const auto& lit_v = std::get<assembly::assembly_literal>(lit.value);
+				return std::formatter<std::string>::format(
+					std::format("{}", lit_v), ctx);
+			}
+			case assembly::extended_assembly_literal::type_t::ADD: {
+				const auto& op = std::get<assembly::extended_assembly_literal::binary_operation>(lit.value);
+				return std::formatter<std::string>::format(
+					std::format("{} + {}", *op.left, *op.right), ctx);
+			}
+			case assembly::extended_assembly_literal::type_t::SUB: {
+				const auto& op = std::get<assembly::extended_assembly_literal::binary_operation>(lit.value);
+				return std::formatter<std::string>::format(
+					std::format("{} - {}", *op.left, *op.right), ctx);
+			}
+			case assembly::extended_assembly_literal::type_t::MUL: {
+				const auto& op = std::get<assembly::extended_assembly_literal::binary_operation>(lit.value);
+				bool need_parens_left = op.left->type == assembly::extended_assembly_literal::type_t::ADD ||
+					op.left->type == assembly::extended_assembly_literal::type_t::SUB;
+				bool need_parens_right = op.right->type == assembly::extended_assembly_literal::type_t::ADD ||
+					op.right->type == assembly::extended_assembly_literal::type_t::SUB;
+				std::string left_str = need_parens_left ? std::format("({})", *op.left) : std::format("{}", *op.left);
+				std::string right_str = need_parens_right ? std::format("({})", *op.right) : std::format("{}", *op.right);
+				return std::formatter<std::string>::format(
+					std::format("{} * {}", left_str, right_str), ctx);
+			}
+		}
+		return std::formatter<std::string>::format("<invalid extended literal>", ctx);
+	}
+};
+template<>
+struct std::formatter<assembly::assembly_memory> : std::formatter<std::string> {
+	auto format(const assembly::assembly_memory& mem, auto& ctx) const {
+		switch (mem.memory_type) {
+			case assembly::assembly_memory::type::DIRECT:
+				return std::formatter<std::string>::format(
+					std::format("[{}]", std::get<assembly::extended_assembly_literal>(mem.value)), ctx);
+			case assembly::assembly_memory::type::REGISTER:
+				return std::formatter<std::string>::format(
+					std::format("[{}]", std::get<machine::register_t>(mem.value)), ctx);
+			case assembly::assembly_memory::type::DISPLACEMENT: {
+				const auto& disp = std::get<assembly::assembly_memory::displacement>(mem.value);
+				return std::formatter<std::string>::format(
+					std::format("[{} + {}]", disp.reg, disp.disp), ctx);
+			}
+			case assembly::assembly_memory::type::SCALED_INDEX: {
+				const auto& si = std::get<assembly::assembly_memory::scaled_index>(mem.value);
+				return std::formatter<std::string>::format(
+					std::format("[{} + {} * {}]", si.base, si.index, si.scale), ctx);
+			}
+			case assembly::assembly_memory::type::SCALED_INDEX_DISPLACEMENT: {
+				const auto& sid = std::get<assembly::assembly_memory::scaled_index_displacement>(mem.value);
+				return std::formatter<std::string>::format(
+					std::format("[{} + {} * {} + {}]", sid.base, sid.index, sid.scale, sid.disp), ctx);
+			}
+		}
+		return std::formatter<std::string>::format("<invalid memory>", ctx);
+	}
+};
+template<>
+struct std::formatter<assembly::assembly_memory_pointer> : std::formatter<std::string> {
+	auto format(const assembly::assembly_memory_pointer& ptr, auto& ctx) const {
+		return std::formatter<std::string>::format(
+			std::format("{} ptr {}", ptr.size, ptr.mem), ctx);
+	}
+};
+template<>
+struct std::formatter<assembly::assembly_operand> : std::formatter<std::string> {
+	auto format(const assembly::assembly_operand& op, auto& ctx) const {
+		switch (op.operand_type) {
+			case assembly::assembly_operand::type::REGISTER:
+				return std::formatter<std::string>::format(
+					std::format("{}", std::get<machine::register_t>(op.value)), ctx);
+			case assembly::assembly_operand::type::LITERAL:
+				return std::formatter<std::string>::format(
+					std::format("{}", std::get<assembly::extended_assembly_literal>(op.value)), ctx);
+			case assembly::assembly_operand::type::MEMORY_POINTER:
+				return std::formatter<std::string>::format(
+					std::format("{}", std::get<assembly::assembly_memory_pointer>(op.value)), ctx);
+		}
+		return std::formatter<std::string>::format("<invalid operand>", ctx);
+	}
+};
+template<>
+struct std::formatter<assembly::assembly_result> : std::formatter<std::string> {
+	auto format(const assembly::assembly_result& res, auto& ctx) const {
+		switch (res.result_type) {
+			case assembly::assembly_result::type::REGISTER:
+				return std::formatter<std::string>::format(
+					std::format("{}", std::get<machine::register_t>(res.value)), ctx);
+			case assembly::assembly_result::type::MEMORY_POINTER:
+				return std::formatter<std::string>::format(
+					std::format("{}", std::get<assembly::assembly_memory_pointer>(res.value)), ctx);
+		}
+		return std::formatter<std::string>::format("<invalid result>", ctx);
+	}
+};
+template<size_t N, bool HasResult>
+struct std::formatter<assembly::assembly_instruction::args_t<N, HasResult>> : std::formatter<std::string> {
+	auto format(const assembly::assembly_instruction::args_t<N, HasResult>& ags, auto& ctx) const {
+		std::string args_str;
+		if constexpr (HasResult) {
+			args_str += std::format("{}", ags.result);
+			if (N > 0) {
+				args_str += ", ";
+			}
+		}
+		for (size_t i = 0; i < N; ++i) {
+			assembly::assembly_operand op = ags.operands[i];
+			args_str += std::format("{}", op);
+			if (i < N - 1) {
+				args_str += ", ";
+			}
+		}
+		return std::formatter<std::string>::format(args_str, ctx);
+	}
+};
+template<>
+struct std::formatter<assembly::assembly_instruction::args_mr_t> : std::formatter<std::string> {
+	auto format(const assembly::assembly_instruction::args_mr_t& ags, auto& ctx) const {
+		std::string args_str = std::format("{}, {}", ags.result, ags.mem);
+		return std::formatter<std::string>::format(args_str, ctx);
+	}
+};
+template<>
+struct std::formatter<assembly::assembly_instruction> : std::formatter<std::string> {
+	auto format(const assembly::assembly_instruction& inst, auto& ctx) const {
+		std::string args_str;
+		if (std::holds_alternative<assembly::assembly_instruction::args_t<2, false>>(inst.args)) {
+			args_str = std::format("{}", std::get<assembly::assembly_instruction::args_t<2, false>>(inst.args));
+		}
+		else if (std::holds_alternative<assembly::assembly_instruction::args_t<1, true>>(inst.args)) {
+			args_str = std::format("{}", std::get<assembly::assembly_instruction::args_t<1, true>>(inst.args));
+		}
+		else if (std::holds_alternative<assembly::assembly_instruction::args_t<1, false>>(inst.args)) {
+			args_str = std::format("{}", std::get<assembly::assembly_instruction::args_t<1, false>>(inst.args));
+		}
+		else if (std::holds_alternative<assembly::assembly_instruction::args_t<0, true>>(inst.args)) {
+			args_str = std::format("{}", std::get<assembly::assembly_instruction::args_t<0, true>>(inst.args));
+		}
+		else if (std::holds_alternative<assembly::assembly_instruction::args_t<0, false>>(inst.args)) {
+			args_str = ""; // no args
+		}
+		else if (std::holds_alternative<assembly::assembly_instruction::args_mr_t>(inst.args)) {
+			args_str = std::format("{}", std::get<assembly::assembly_instruction::args_mr_t>(inst.args));
+		}
+		else {
+			args_str = "<invalid args>";
+		}
+		return std::formatter<std::string>::format(
+			std::format("{} {}", inst.op, args_str), ctx);
+	}
+};
+template<>
+struct std::formatter<assembly::assembly_component> : std::formatter<std::string> {
+	bool indented{false};
+	constexpr auto parse(std::format_parse_context& ctx) {
+		auto it = ctx.begin();
+		for (; it != ctx.end() && *it != '}'; ++it) {
+			if (*it == 'i') {
+				indented = true;
+			}
+		}
+		return it;
+	}
+	auto format(const assembly::assembly_component& comp, auto& ctx) const {
+		switch (comp.component_type) {
+			case assembly::assembly_component::type::LABEL:
+				return std::formatter<std::string>::format(
+					std::format("{}:", std::get<std::string>(comp.value)), ctx);
+			case assembly::assembly_component::type::INSTRUCTION: {
+				const auto& inst = std::get<assembly::assembly_instruction>(comp.value);
+				if (indented) {
+					return std::formatter<std::string>::format(std::format("  {}", inst), ctx);
+				}
+				return std::formatter<std::string>::format(std::format("{}", inst), ctx);
+			}
+			case assembly::assembly_component::type::RAW_DATA: {
+				const auto& data = std::get<std::vector<uint8_t>>(comp.value);
+				std::string data_str = "db ";
+				bool text_mode = false;
+				for (size_t i = 0; i < data.size(); ++i) {
+					bool is_printable = std::isprint(data[i]);
+					if (is_printable && !text_mode) {
+						if (i > 0) {
+							data_str += ", ";
+						}
+						data_str += "\"";
+						text_mode = true;
+					}
+					else if (!is_printable && text_mode) {
+						data_str += "\"";
+						text_mode = false;
+					}
+					if (text_mode) {
+						switch (data[i]) {
+							case '\"':
+								data_str += "\\\"";
+								break;
+							case '\\':
+								data_str += "\\\\";
+								break;
+							case '\n':
+								data_str += "\\n";
+								break;
+							case '\r':
+								data_str += "\\r";
+								break;
+							case '\t':
+								data_str += "\\t";
+								break;
+							default:
+								data_str += static_cast<char>(data[i]);
+								break;
+						}
+					}
+					else {
+						if (i > 0) {
+							data_str += ", ";
+						}
+						data_str += std::format("0x{:02X}", data[i]);
+					}
+				}
+				if (text_mode) {
+					data_str += "\"";
+				}
+				if (indented) {
+					data_str = "  " + data_str;
+				}
+				return std::formatter<std::string>::format(data_str, ctx);
+			}
+			case assembly::assembly_component::type::COMMENT:
+				return std::formatter<std::string>::format(
+					std::format("; {}", std::get<std::string>(comp.value)), ctx);
+		}
+		return std::formatter<std::string>::format("<invalid component>", ctx);
+	}
+};
