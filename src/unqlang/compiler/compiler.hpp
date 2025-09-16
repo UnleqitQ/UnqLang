@@ -439,6 +439,7 @@ namespace unqlang::compiler {
 		std::shared_ptr<analysis::types::type_system> m_type_system;
 		std::shared_ptr<analysis::functions::storage> m_function_storage;
 		std::shared_ptr<analysis::variables::storage> m_variable_storage;
+		std::shared_ptr<analysis::complex_literals::storage> m_complex_literal_storage;
 		std::unordered_map<std::string, built_in_function> m_built_in_functions;
 		std::unordered_map<std::string, assembly::assembly_program_t> m_compiled_functions;
 		std::vector<ast_statement_function_declaration> m_function_declarations;
@@ -449,7 +450,8 @@ namespace unqlang::compiler {
 			  m_function_storage(std::make_shared<analysis::functions::storage>()),
 			  m_variable_storage(
 				  std::make_shared<analysis::variables::storage>(analysis::variables::storage::storage_type_t::Global)
-			  ) {
+			  ),
+			  m_complex_literal_storage(std::make_shared<analysis::complex_literals::storage>()) {
 		}
 
 		void analyze_program(const ast_program& program);
@@ -470,6 +472,7 @@ namespace unqlang::compiler {
 			const analysis::statements::block_statement& func_body,
 			assembly::assembly_program_t& out_program
 		);
+		void compile_literals(assembly::assembly_program_t& out_program);
 
 		void register_built_in_function(
 			const analysis::functions::function_info& func_info,

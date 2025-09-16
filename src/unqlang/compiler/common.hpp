@@ -4,6 +4,7 @@
 #include "../analysis/types.hpp"
 #include "../analysis/functions.hpp"
 #include "../analysis/variables.hpp"
+#include "../analysis/complex_literals.hpp"
 
 namespace unqlang::compiler {
 	struct assembly_function_signature;
@@ -116,16 +117,22 @@ namespace unqlang::compiler {
 		// variable storage (for global variables)
 		std::shared_ptr<analysis::variables::storage> variable_storage;
 
+		// complex literal storage (for global complex literals)
+		std::shared_ptr<analysis::complex_literals::storage> complex_literal_storage;
+
 		compilation_context()
 			: type_system(std::make_shared<analysis::types::type_system>()),
 			  function_storage(std::make_shared<analysis::functions::storage>()),
-			  variable_storage(std::make_shared<analysis::variables::storage>()) {
+			  variable_storage(std::make_shared<analysis::variables::storage>()),
+			  complex_literal_storage(std::make_shared<analysis::complex_literals::storage>()) {
 		}
 
 		compilation_context(const std::shared_ptr<analysis::types::type_system>& ts,
 			const std::shared_ptr<analysis::functions::storage>& fs,
-			const std::shared_ptr<analysis::variables::storage>& vs)
-			: type_system(ts), function_storage(fs), variable_storage(vs) {
+			const std::shared_ptr<analysis::variables::storage>& vs,
+			const std::shared_ptr<analysis::complex_literals::storage>& cls)
+			: type_system(ts), function_storage(fs), variable_storage(vs),
+			  complex_literal_storage(cls) {
 			if (!type_system) {
 				throw std::runtime_error("Type system cannot be null");
 			}
@@ -134,6 +141,9 @@ namespace unqlang::compiler {
 			}
 			if (!variable_storage) {
 				throw std::runtime_error("Variable storage cannot be null");
+			}
+			if (!complex_literal_storage) {
+				throw std::runtime_error("Complex literal storage cannot be null");
 			}
 		}
 	};

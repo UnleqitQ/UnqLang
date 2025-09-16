@@ -1278,16 +1278,44 @@ namespace unqlang::compiler {
 		switch (expr.kind) {
 			case analysis::expressions::expression_node::kind_t::LITERAL: {
 				const auto& lit = std::get<analysis::expressions::literal_expression>(expr.value);
-				if (lit.kind != analysis::expressions::literal_expression::kind_t::UINT) {
-					throw std::runtime_error("Only integer literals can be compiled to pointer types");
+				if (lit.kind == analysis::expressions::literal_expression::kind_t::UINT) {
+					uint32_t addr = std::get<uint32_t>(lit.value);
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result({target_reg.id, machine::register_access::dword}),
+						assembly::assembly_operand(addr)
+					));
+					return;
 				}
-				uint32_t addr = std::get<uint32_t>(lit.value);
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::MOV,
-					assembly::assembly_result({target_reg.id, machine::register_access::dword}),
-					assembly::assembly_operand(addr)
-				));
-				return;
+				if (lit.kind == analysis::expressions::literal_expression::kind_t::INT) {
+					int32_t addr = std::get<int32_t>(lit.value);
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result({target_reg.id, machine::register_access::dword}),
+						assembly::assembly_operand(static_cast<uint32_t>(addr))
+					));
+					return;
+				}
+				if (lit.kind == analysis::expressions::literal_expression::kind_t::NULLPTR) {
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result({target_reg.id, machine::register_access::dword}),
+						assembly::assembly_operand(0)
+					));
+					return;
+				}
+				if (lit.kind == analysis::expressions::literal_expression::kind_t::STRING) {
+					uint32_t id = context.global_context->complex_literal_storage->add_string(
+						std::get<std::string>(lit.value)
+					);
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::MOV,
+						assembly::assembly_result({target_reg.id, machine::register_access::dword}),
+						assembly::assembly_operand(analysis::complex_literals::string_label(id))
+					));
+					return;
+				}
+				throw std::runtime_error("Only integer literals can be compiled to pointer types");
 			}
 			case analysis::expressions::expression_node::kind_t::IDENTIFIER: {
 				const auto& ident = std::get<analysis::expressions::identifier_expression>(expr.value);
@@ -4832,7 +4860,8 @@ namespace unqlang::compiler {
 			std::make_shared<compilation_context>(
 				this->m_type_system,
 				this->m_function_storage,
-				this->m_variable_storage
+				this->m_variable_storage,
+				this->m_complex_literal_storage
 			),
 			variable_storage,
 			func_sig
@@ -4902,6 +4931,43 @@ namespace unqlang::compiler {
 			machine::operation::RET
 		));
 	}
+	void Compiler::compile_literals(assembly::assembly_program_t& out_program) {
+		// compile strings
+		for (const auto& [str, id] : m_complex_literal_storage->string_map) {
+			std::string escaped_str;
+			for (char c : str) {
+				if (c == '\n') {
+					escaped_str += "\\n";
+				}
+				else if (c == '\t') {
+					escaped_str += "\\t";
+				}
+				else if (c == '\r') {
+					escaped_str += "\\r";
+				}
+				else if (c == '\"') {
+					escaped_str += "\\\"";
+				}
+				else if (c == '\\') {
+					escaped_str += "\\\\";
+				}
+				else if (std::isprint(static_cast<unsigned char>(c))) {
+					escaped_str += c;
+				}
+				else {
+					escaped_str += std::format("\\x{:02x}", static_cast<unsigned char>(c));
+				}
+			}
+			out_program.emplace_back(assembly::assembly_component::type::COMMENT, std::format("String literal id {}: \"{}\"",
+				id, escaped_str));
+			out_program.emplace_back(assembly::assembly_component::type::LABEL,
+				analysis::complex_literals::string_label(id));
+			std::vector<uint8_t> str_data(str.size() + 1);
+			std::memcpy(str_data.data(), str.c_str(), str.size());
+			str_data[str.size()] = 0; // null terminator
+			out_program.emplace_back(str_data);
+		}
+	}
 	void Compiler::register_built_in_function(
 		const analysis::functions::function_info& func_info,
 		const assembly::assembly_program_t& program
@@ -4922,6 +4988,7 @@ namespace unqlang::compiler {
 			true
 		);
 	}
+
 	void Compiler::compile_entry(const std::string& entry_function, assembly::assembly_program_t& out_program) {
 		if (!m_function_storage->is_function_declared(entry_function)) {
 			throw std::runtime_error("Entry function '" + entry_function + "' is not declared");
@@ -4979,10 +5046,15 @@ namespace unqlang::compiler {
 	assembly::assembly_program_t Compiler::compile(const std::string& entry_function) {
 		assembly::assembly_program_t program;
 		this->precompile_functions();
+		program.emplace_back("--- Entry Point ---");
 		this->compile_entry(entry_function, program);
+		program.emplace_back(assembly::assembly_component::type::COMMENT, "--- Literals ---");
+		this->compile_literals(program);
+		program.emplace_back(assembly::assembly_component::type::COMMENT, "--- Built-in Functions ---");
 		for (const auto& func : m_built_in_functions | std::views::values) {
 			program.insert(program.end(), func.implementation.begin(), func.implementation.end());
 		}
+		program.emplace_back(assembly::assembly_component::type::COMMENT, "--- User Functions ---");
 		for (const auto& func_program : m_compiled_functions | std::views::values) {
 			program.insert(program.end(), func_program.begin(), func_program.end());
 		}
