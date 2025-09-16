@@ -673,7 +673,6 @@ namespace assembly {
 			machine::operation::POP,
 			machine::operation::INC,
 			machine::operation::DEC,
-			machine::operation::IN,
 			machine::operation::NEG,
 			machine::operation::NOT
 		};
@@ -699,7 +698,6 @@ namespace assembly {
 			machine::operation::JBE,
 			machine::operation::CALL,
 			machine::operation::PUSH,
-			machine::operation::OUT,
 		};
 		const std::vector<machine::operation> operations_1r = {
 			machine::operation::MOV,
@@ -723,10 +721,12 @@ namespace assembly {
 			machine::operation::ROR,
 			machine::operation::RCL,
 			machine::operation::RCR,
+			machine::operation::IN,
 		};
 		const std::vector<machine::operation> operations_2n = {
 			machine::operation::CMP,
 			machine::operation::TEST,
+			machine::operation::OUT,
 		};
 		// Special case: LEA only with memory operand
 		const std::vector<machine::operation> operations_mr = {

@@ -6,8 +6,8 @@
 
 namespace machine {
 	struct peripheral {
-		typedef std::function<uint32_t(data_size_t value_size)> read_callback_t;
-		typedef std::function<void(uint32_t value, data_size_t value_size)> write_callback_t;
+		typedef std::function<uint32_t()> read_callback_t;
+		typedef std::function<void(uint32_t value)> write_callback_t;
 
 		uint16_t port;
 		read_callback_t read_callback;

@@ -1007,16 +1007,36 @@ namespace machine {
 				break;
 			}
 			case operation::IN: {
-				// Input operation not implemented
+				const auto args = instr.args.args_1r;
+				uint32_t port = retrieve_operand_value(args.operands[0]);
+				uint32_t value = 0;
+				if (auto it = m_peripherals.find(port); it != m_peripherals.end()) {
+					value = it->second.read_callback();
+					if (m_verbose)
+						std::cout << std::format("IN: Port 0x{:04X} -> Value 0x{:08X} ({})\n", port, value,
+							static_cast<int32_t>(value));
+				}
+				else {
+					if (m_verbose)
+						std::cout << std::format("Warning: No peripheral mapped to port 0x{:04X}\n", port);
+				}
+				set_result_value(args.result, value);
 				break;
 			}
 			case operation::OUT: {
-				const auto args = instr.args.args_1n;
+				const auto args = instr.args.args_2n;
 				uint32_t value = retrieve_operand_value(args.operands[0]);
+				uint32_t port = retrieve_operand_value(args.operands[1]);
 				if (m_verbose)
-					std::cout << std::format("OUT: 0x{:02X} ('{}')\n", value & 0xFF, static_cast<char>(value & 0xFF));
-				else
-					std::cout << static_cast<char>(value & 0xFF);
+					std::cout << std::format("OUT: Port 0x{:04X} <- Value 0x{:08X} ({})\n", port, value,
+						static_cast<int32_t>(value));
+				if (auto it = m_peripherals.find(port); it != m_peripherals.end()) {
+					it->second.write_callback(value);
+				}
+				else {
+					if (m_verbose)
+						std::cout << std::format("Warning: No peripheral mapped to port 0x{:04X}\n", port);
+				}
 				break;
 			}
 		}

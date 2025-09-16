@@ -2,8 +2,11 @@
 
 #define UNSAFE
 
+#include <unordered_map>
+
 #include "assembler.hpp"
 #include "instruction.hpp"
+#include "peripheral.hpp"
 #include "ram.hpp"
 #include "register.hpp"
 
@@ -20,6 +23,7 @@ namespace machine {
 		execution_state_t m_state = execution_state_t::HALTED;
 		bool m_verbose = false;
 		std::string m_error_message;
+		std::unordered_map<uint16_t, peripheral> m_peripherals;
 
 	public:
 		computer() {

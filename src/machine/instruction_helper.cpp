@@ -36,18 +36,19 @@ namespace machine::instruction_helper {
 			case operation::ROR:
 			case operation::RCL:
 			case operation::RCR:
+			case operation::IN:
 				return {1, 1, 0}; // One operand, one result
 			case operation::LEA:
 				return {1, 3, 0}; // One memory operand, one result
 			case operation::CMP:
 			case operation::TEST:
+			case operation::OUT:
 				return {0, 2, 0}; // Two operands, no result
 			case operation::INC:
 			case operation::DEC:
 			case operation::NEG:
 			case operation::NOT:
 			case operation::POP:
-			case operation::IN:
 			case operation::SETZ:
 			case operation::SETNZ:
 			case operation::SETO:
@@ -86,7 +87,6 @@ namespace machine::instruction_helper {
 			case operation::JB:
 			case operation::JBE:
 			case operation::CALL:
-			case operation::OUT:
 				return {0, 1, 0}; // One operand, no result
 		}
 		std::cerr << "Warning: Unknown operation in get_operands_type: " << static_cast<uint8_t>(op) << "\n";

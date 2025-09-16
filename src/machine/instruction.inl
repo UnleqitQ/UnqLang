@@ -282,14 +282,16 @@ namespace machine {
 			case operation::ROL:
 			case operation::ROR:
 			case operation::RCL:
-			case operation::RCR: {
+			case operation::RCR:
+			case operation::IN: {
 				const auto& args = inst.args.args_1r;
 				os << ' ' << args.result << ", " << args.operands[0];
 				break;
 			}
 			// Two read only
 			case operation::CMP:
-			case operation::TEST: {
+			case operation::TEST:
+			case operation::OUT: {
 				const auto& args = inst.args.args_2n;
 				os << ' ' << args.operands[0] << ", " << args.operands[1];
 				break;
@@ -300,7 +302,6 @@ namespace machine {
 			case operation::INC:
 			case operation::DEC:
 			case operation::POP:
-			case operation::IN:
 			case operation::SETZ:
 			case operation::SETNZ:
 			case operation::SETO:
@@ -342,8 +343,7 @@ namespace machine {
 			case operation::JAE:
 			case operation::JB:
 			case operation::JBE:
-			case operation::CALL:
-			case operation::OUT: {
+			case operation::CALL: {
 				const auto& args = inst.args.args_1n;
 				os << ' ' << args.operands[0];
 				break;
@@ -391,10 +391,12 @@ namespace machine {
 			case operation::ROR:
 			case operation::RCL:
 			case operation::RCR:
+			case operation::IN:
 				return args.args_1r.get_size() + 1;
 			// Two read only
 			case operation::CMP:
 			case operation::TEST:
+			case operation::OUT:
 				return args.args_2n.get_size() + 1;
 			// One read & write
 			case operation::NOT:
@@ -402,7 +404,6 @@ namespace machine {
 			case operation::INC:
 			case operation::DEC:
 			case operation::POP:
-			case operation::IN:
 				return args.args_0r.get_size() + 1;
 			// One read only
 			case operation::PUSH:
@@ -426,7 +427,6 @@ namespace machine {
 			case operation::JB:
 			case operation::JBE:
 			case operation::CALL:
-			case operation::OUT:
 			case operation::SETZ:
 			case operation::SETNZ:
 			case operation::SETO:
