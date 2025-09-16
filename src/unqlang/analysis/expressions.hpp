@@ -57,7 +57,7 @@ namespace unqlang::analysis::expressions {
 				case kind_t::DOUBLE:
 					return types::type_node(types::primitive_type::DOUBLE);
 				case kind_t::STRING:
-					return types::pointer_type(types::primitive_type::SIGNED_CHAR);
+					return types::pointer_type(types::primitive_type::CHAR);
 				case kind_t::BOOL:
 					return types::type_node(types::primitive_type::BOOL);
 			}
