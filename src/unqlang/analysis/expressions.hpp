@@ -1,5 +1,4 @@
 #pragma once
-#include <optional>
 
 #include "types.hpp"
 #include "variables.hpp"
@@ -399,6 +398,28 @@ namespace unqlang::analysis::expressions {
 	ast_expression_unary::type_t op_to_ast(unary_expression::operator_t op);
 	unary_expression::operator_t op_from_ast(ast_expression_unary::type_t op);
 
+	struct cast_expression {
+		types::type_node target_type;
+		std::shared_ptr<expression_node> expression;
+
+		cast_expression() : target_type(types::primitive_type::VOID), expression(nullptr) {
+		}
+		cast_expression(types::type_node tt, std::shared_ptr<expression_node> expr)
+			: target_type(std::move(tt)), expression(std::move(expr)) {
+		}
+
+		types::type_node get_type() const {
+			return target_type;
+		}
+
+		bool operator==(const cast_expression& other) const;
+		bool operator!=(const cast_expression& other) const {
+			return !(*this == other);
+		}
+
+		static cast_expression from_ast(const ast_expression_cast& ast_cast);
+	};
+
 	struct call_expression {
 		std::shared_ptr<expression_node> callee;
 		std::vector<std::shared_ptr<expression_node>> arguments;
@@ -478,6 +499,7 @@ namespace unqlang::analysis::expressions {
 			IDENTIFIER,
 			BINARY,
 			UNARY,
+			CAST,
 			CALL,
 			MEMBER,
 			TERNARY,
@@ -489,6 +511,7 @@ namespace unqlang::analysis::expressions {
 			identifier_expression, // IDENTIFIER
 			binary_expression, // BINARY
 			unary_expression, // UNARY
+			cast_expression, // CAST
 			call_expression, // CALL
 			member_expression, // MEMBER
 			ternary_expression, // TERNARY
@@ -506,6 +529,8 @@ namespace unqlang::analysis::expressions {
 		expression_node(binary_expression bin) : kind(kind_t::BINARY), value(std::move(bin)) {
 		}
 		expression_node(unary_expression un) : kind(kind_t::UNARY), value(std::move(un)) {
+		}
+		expression_node(cast_expression cast) : kind(kind_t::CAST), value(std::move(cast)) {
 		}
 		expression_node(call_expression call) : kind(kind_t::CALL), value(std::move(call)) {
 		}
@@ -528,6 +553,8 @@ namespace unqlang::analysis::expressions {
 					return std::get<binary_expression>(value).get_type(storage, func_storage, type_sys);
 				case kind_t::UNARY:
 					return std::get<unary_expression>(value).get_type(storage, func_storage, type_sys);
+				case kind_t::CAST:
+					return std::get<cast_expression>(value).get_type();
 				case kind_t::CALL:
 					return std::get<call_expression>(value).get_type(storage, func_storage, type_sys);
 				case kind_t::MEMBER:
@@ -566,6 +593,9 @@ namespace unqlang::analysis::expressions {
 		const expression_node& right) {
 		return binary_expression(op, std::make_shared<expression_node>(left),
 			std::make_shared<expression_node>(right));
+	}
+	inline cast_expression make_cast(const types::type_node& target_type, const expression_node& expr) {
+		return cast_expression(target_type, std::make_shared<expression_node>(expr));
 	}
 	inline call_expression make_call(const expression_node& callee,
 		const std::vector<expression_node>& args) {

@@ -248,6 +248,15 @@ namespace unqlang::analysis::expressions {
 		}
 		throw std::runtime_error("Unknown AST unary operator");
 	}
+	bool cast_expression::operator==(const cast_expression& other) const {
+		return other.expression == expression && other.target_type == target_type;
+	}
+	cast_expression cast_expression::from_ast(const ast_expression_cast& ast_cast) {
+		return cast_expression(
+			types::type_system::from_ast(*ast_cast.target_type),
+			std::make_shared<expression_node>(expression_node::from_ast(*ast_cast.expression))
+		);
+	}
 
 	types::type_node call_expression::get_type(
 		const variables::storage& storage,
@@ -459,6 +468,8 @@ namespace unqlang::analysis::expressions {
 				return binary_expression::from_ast(std::get<ast_expression_binary>(ast_expr.value));
 			case ast_expression_node::type_t::Unary:
 				return unary_expression::from_ast(std::get<ast_expression_unary>(ast_expr.value));
+			case ast_expression_node::type_t::Cast:
+				return cast_expression::from_ast(std::get<ast_expression_cast>(ast_expr.value));
 			case ast_expression_node::type_t::FunctionCall:
 				return call_expression::from_ast(std::get<ast_expression_call>(ast_expr.value));
 			case ast_expression_node::type_t::MemberAccess:
@@ -500,6 +511,13 @@ namespace unqlang::analysis::expressions {
 					return true;
 				}
 				return has_side_effects(*un.operand);
+			}
+			case expression_node::kind_t::CAST: {
+				auto cast = std::get<cast_expression>(expr.value);
+				if (cast.expression == nullptr) {
+					throw std::runtime_error("Cast expression missing operand");
+				}
+				return has_side_effects(*cast.expression);
 			}
 			case expression_node::kind_t::CALL:
 				// function calls have side effects
@@ -1008,6 +1026,13 @@ namespace unqlang::analysis::expressions {
 						optimize_expression(
 							*std::get<binary_expression>(expr.value).right
 						)
+					)
+				);
+			case expression_node::kind_t::CAST:
+				return make_cast(
+					std::get<cast_expression>(expr.value).target_type,
+					optimize_expression(
+						*std::get<cast_expression>(expr.value).expression
 					)
 				);
 			case expression_node::kind_t::CALL:
