@@ -5347,12 +5347,56 @@ namespace unqlang::compiler {
 		// store the function
 		m_built_in_functions.emplace(
 			func_info.name,
-			built_in_function{func_info, func_program}
+			built_in_function{
+				built_in_function::assembly_built_in{
+					func_info,
+					std::move(func_program)
+				}
+			}
 		);
 		m_function_storage->declare_function(
 			func_info.name,
 			func_info.return_type,
 			func_info.parameter_types,
+			true
+		);
+	}
+	void Compiler::register_built_in_function(
+		const std::string& name,
+		const analysis::types::type_node& return_type,
+		const std::vector<analysis::types::type_node>& parameter_types,
+		const std::vector<machine::register_t>& parameter_registers,
+		const machine::register_t& return_register,
+		const assembly::assembly_program_t& program
+	) {
+		if (parameter_types.size() != parameter_registers.size()) {
+			throw std::runtime_error("Parameter types and registers size mismatch");
+		}
+		std::vector<built_in_function::inline_assembly_built_in::parameter> params;
+		params.reserve(parameter_types.size());
+		for (size_t i = 0; i < parameter_types.size(); ++i) {
+			params.push_back({
+				parameter_types[i],
+				parameter_registers[i]
+			});
+		}
+		m_built_in_functions.emplace(
+			name,
+			built_in_function{
+				built_in_function::inline_assembly_built_in{
+					{
+						return_type,
+						return_register
+					},
+					std::move(params),
+					program
+				}
+			}
+		);
+		m_function_storage->declare_function(
+			name,
+			return_type,
+			parameter_types,
 			true
 		);
 	}
@@ -5420,7 +5464,13 @@ namespace unqlang::compiler {
 		this->compile_literals(program);
 		program.emplace_back(assembly::assembly_component::type::COMMENT, "--- Built-in Functions ---");
 		for (const auto& func : m_built_in_functions | std::views::values) {
-			program.insert(program.end(), func.implementation.begin(), func.implementation.end());
+			if (func.type == built_in_function::type_t::Assembly) {
+				program.insert(
+					program.end(),
+					std::get<built_in_function::assembly_built_in>(func.data).implementation.begin(),
+					std::get<built_in_function::assembly_built_in>(func.data).implementation.end()
+				);
+			}
 		}
 		program.emplace_back(assembly::assembly_component::type::COMMENT, "--- User Functions ---");
 		for (const auto& func_program : m_compiled_functions | std::views::values) {

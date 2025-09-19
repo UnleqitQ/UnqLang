@@ -1,7 +1,5 @@
 #pragma once
 
-#include <optional>
-
 #include "variable.hpp"
 #include "function.hpp"
 #include "scope.hpp"
@@ -426,18 +424,46 @@ namespace unqlang::compiler {
 
 	class Compiler {
 		struct built_in_function {
-			analysis::functions::function_info info;
-			assembly::assembly_program_t implementation;
+			struct assembly_built_in {
+				analysis::functions::function_info info;
+				assembly::assembly_program_t implementation;
+			};
+			struct inline_assembly_built_in {
+				struct parameter {
+					analysis::types::type_node type;
+					machine::register_t reg;
+					parameter() : type(analysis::types::primitive_type::VOID), reg(machine::register_id::eax) {
+					}
+					parameter(
+						const analysis::types::type_node& t,
+						const machine::register_t r
+					)
+						: type(t), reg(r) {
+					}
+				};
+				parameter return_value;
+				std::vector<parameter> parameters;
+				assembly::assembly_program_t implementation;
+			};
+			enum class type_t {
+				// Normal,
+				Assembly,
+				InlineAssembly
+			} type;
+			std::variant<
+				assembly_built_in,
+				inline_assembly_built_in
+			> data;
 
-			built_in_function() : info(), implementation() {
+			built_in_function() = default;
+			built_in_function(const assembly_built_in& func)
+				: type(type_t::Assembly), data(func) {
 			}
-			built_in_function(
-				analysis::functions::function_info i,
-				assembly::assembly_program_t impl
-			)
-				: info(std::move(i)), implementation(std::move(impl)) {
+			built_in_function(const inline_assembly_built_in& func)
+				: type(type_t::InlineAssembly), data(func) {
 			}
 		};
+
 		std::shared_ptr<analysis::types::type_system> m_type_system;
 		std::shared_ptr<analysis::functions::storage> m_function_storage;
 		std::shared_ptr<analysis::variables::storage> m_variable_storage;
@@ -478,6 +504,14 @@ namespace unqlang::compiler {
 
 		void register_built_in_function(
 			const analysis::functions::function_info& func_info,
+			const assembly::assembly_program_t& program
+		);
+		void register_built_in_function(
+			const std::string& name,
+			const analysis::types::type_node& return_type,
+			const std::vector<analysis::types::type_node>& parameter_types,
+			const std::vector<machine::register_t>& parameter_registers,
+			const machine::register_t& return_register,
 			const assembly::assembly_program_t& program
 		);
 
