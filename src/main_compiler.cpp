@@ -156,7 +156,7 @@ int main() {
 		return 1;
 	}
 
-	std::filesystem::path source_path = "../programs/gol.unq";
+	std::filesystem::path source_path = "../programs/quicksort.unq";
 	std::string source_code;
 	try {
 		if (!std::filesystem::exists(source_path)) {
