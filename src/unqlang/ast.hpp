@@ -353,6 +353,11 @@ namespace unqlang {
 		}
 		return os;
 	}
+	struct ast_expression_cast {
+		std::shared_ptr<ast_type_node> target_type;
+		std::shared_ptr<ast_expression_node> expression;
+		void print(int indent = 0) const;
+	};
 	struct ast_expression_call {
 		std::shared_ptr<ast_expression_node> callee;
 		std::vector<std::shared_ptr<ast_expression_node>> arguments;
@@ -367,6 +372,7 @@ namespace unqlang {
 			Ternary,
 			Unary,
 			Binary,
+			Cast,
 			FunctionCall,
 
 			Unknown,
@@ -376,6 +382,7 @@ namespace unqlang {
 			std::string, // Identifier
 			ast_expression_binary, // Binary
 			ast_expression_unary, // Unary
+			ast_expression_cast, // Cast
 			ast_member_access, // MemberAccess
 			ast_expression_ternary, // Ternary
 			ast_expression_call, // FunctionCall

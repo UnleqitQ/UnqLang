@@ -686,8 +686,23 @@ namespace unqlang {
 			},
 			"SizeOfExpression"
 		).rename("SizeOfExpression");
+		const ast_expression_parser_t ast_l2_cast_parser =
+		((util::punctuation('(') >
+			type_parser::ref_ast_type_parser <
+			util::punctuation(')')) +
+			ref_ast_l1_expression_parser
+		).map<std::shared_ptr<ast_expression_node>>(
+			[](const auto& p) {
+				ast_expression_cast expr;
+				expr.target_type = p.first;
+				expr.expression = p.second;
+				return util::make_ast_expression_node(ast_expression_node::type_t::Cast, expr);
+			},
+			"CastExpression"
+		).rename("CastExpression");
 		const ast_expression_parser_t ast_l2_expression_parser = (
 			ast_l2_prefix_parser ||
+			ast_l2_cast_parser ||
 			ast_l2_sizeof_parser ||
 			ref_ast_l1_expression_parser
 		).rename("ExpressionLevel2");
@@ -1602,6 +1617,13 @@ namespace unqlang {
 			arg->print(indent + 1);
 		}
 	}
+	void ast_expression_cast::print(int indent) const {
+		const std::string indent_str(indent, ' ');
+		std::cout << indent_str << "[CastExpression] Target Type:\n";
+		target_type->print(indent + 1);
+		std::cout << indent_str << "Expression:\n";
+		expression->print(indent + 1);
+	}
 	void ast_expression_node::print(int indent) const {
 		switch (type) {
 			case type_t::Literal:
@@ -1615,6 +1637,9 @@ namespace unqlang {
 				break;
 			case type_t::Unary:
 				std::get<ast_expression_unary>(value).print(indent);
+				break;
+			case type_t::Cast:
+				std::get<ast_expression_cast>(value).print(indent);
 				break;
 			case type_t::FunctionCall:
 				std::get<ast_expression_call>(value).print(indent);
