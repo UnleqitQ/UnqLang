@@ -46,6 +46,57 @@ namespace unqlang::compiler {
 	);
 
 	/**
+	 * Compiles an inline assembly function call expression, generating the necessary assembly instructions to
+	 * evaluate the function call and store the result in the specified target register.
+	 * @param call The call expression to compile, which includes the function being called and its arguments.
+	 * @param context The current compilation context, which may include information about the current scope and type system.
+	 * @param program The assembly program to which the compiled instructions will be appended.
+	 * @param current_scope The current assembly scope, which may be needed for variable lookups and other context-specific information.
+	 * @param target_reg The register in which to store the result of the function call.
+	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
+	 * @param statement_index The index of the statement being compiled, useful for error reporting and debugging.
+	 * @param store_value Whether to store the return value in the target register. If false, the call will be executed but the return value may be ignored.
+	 */
+	void compile_inline_call_expression(
+		const analysis::expressions::call_expression& call,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		machine::register_t target_reg,
+		regmask used_regs,
+		regmask& modified_regs,
+		uint32_t statement_index,
+		bool store_value
+	);
+
+	/**
+	 * Compiles a function call expression, generating the necessary assembly instructions to
+	 * evaluate the function call and store the result in the specified target register.
+	 *
+	 * @param call The call expression to compile, which includes the function being called and its arguments.
+	 * @param context The current compilation context, which may include information about the current scope and type system.
+	 * @param program The assembly program to which the compiled instructions will be appended.
+	 * @param current_scope The current assembly scope, which may be needed for variable lookups and other context-specific information.
+	 * @param target_reg The register in which to store the result of the function call.
+	 * @param used_regs A mask of registers that are currently in use and should not be overwritten without saving/restoring.
+	 * @param modified_regs A mask of registers that have been modified by this compilation and need to be saved/restored.
+	 * @param statement_index The index of the statement being compiled, useful for error reporting and debugging.
+	 * @param store_value Whether to store the return value in the target register. If false, the call will be executed but the return value may be ignored.
+	 */
+	void compile_call_expression(
+		const analysis::expressions::call_expression& call,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		machine::register_t target_reg,
+		regmask used_regs,
+		regmask& modified_regs,
+		uint32_t statement_index,
+		bool store_value
+	);
+
+	/**
 	 * Compiles an assignment operation from a source expression to a destination memory location.
 	 * @param dest The destination memory location where the result will be stored.
 	 * @param dest_type The type of the destination.
@@ -424,51 +475,21 @@ namespace unqlang::compiler {
 
 	class Compiler {
 		struct built_in_function {
-			struct assembly_built_in {
-				analysis::functions::function_info info;
-				assembly::assembly_program_t implementation;
-			};
-			struct inline_assembly_built_in {
-				struct parameter {
-					analysis::types::type_node type;
-					machine::register_t reg;
-					parameter() : type(analysis::types::primitive_type::VOID), reg(machine::register_id::eax) {
-					}
-					parameter(
-						const analysis::types::type_node& t,
-						const machine::register_t r
-					)
-						: type(t), reg(r) {
-					}
-				};
-				parameter return_value;
-				std::vector<parameter> parameters;
-				assembly::assembly_program_t implementation;
-			};
-			enum class type_t {
-				// Normal,
-				Assembly,
-				InlineAssembly
-			} type;
-			std::variant<
-				assembly_built_in,
-				inline_assembly_built_in
-			> data;
+			analysis::functions::function_info info;
+			assembly::assembly_program_t implementation;
 
 			built_in_function() = default;
-			built_in_function(const assembly_built_in& func)
-				: type(type_t::Assembly), data(func) {
-			}
-			built_in_function(const inline_assembly_built_in& func)
-				: type(type_t::InlineAssembly), data(func) {
+			built_in_function(const analysis::functions::function_info& i, const assembly::assembly_program_t& impl)
+				: info(i), implementation(impl) {
 			}
 		};
 
 		std::shared_ptr<analysis::types::type_system> m_type_system;
 		std::shared_ptr<analysis::functions::storage> m_function_storage;
+		std::shared_ptr<analysis::functions::inline_storage> m_inline_storage;
+		std::unordered_map<std::string, built_in_function> m_built_in_functions;
 		std::shared_ptr<analysis::variables::storage> m_variable_storage;
 		std::shared_ptr<analysis::complex_literals::storage> m_complex_literal_storage;
-		std::unordered_map<std::string, built_in_function> m_built_in_functions;
 		std::unordered_map<std::string, assembly::assembly_program_t> m_compiled_functions;
 		std::vector<ast_statement_function_declaration> m_function_declarations;
 
@@ -508,11 +529,7 @@ namespace unqlang::compiler {
 		);
 		void register_built_in_function(
 			const std::string& name,
-			const analysis::types::type_node& return_type,
-			const std::vector<analysis::types::type_node>& parameter_types,
-			const std::vector<machine::register_t>& parameter_registers,
-			const machine::register_t& return_register,
-			const assembly::assembly_program_t& program
+			const analysis::functions::inline_function& func
 		);
 
 		analysis::types::type_system& get_type_system() {

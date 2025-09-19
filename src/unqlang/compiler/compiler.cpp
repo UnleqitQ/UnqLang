@@ -1799,6 +1799,216 @@ namespace unqlang::compiler {
 		}
 	}
 
+	void compile_inline_call_expression(
+		const analysis::expressions::call_expression& call,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		machine::register_t target_reg,
+		regmask used_regs,
+		regmask& modified_regs,
+		uint32_t statement_index,
+		bool store_value
+	) {
+	}
+
+	void compile_call_expression(
+		const analysis::expressions::call_expression& call,
+		const scoped_compilation_context& context,
+		assembly::assembly_program_t& program,
+		assembly_scope& current_scope,
+		machine::register_t target_reg,
+		regmask used_regs,
+		regmask& modified_regs,
+		uint32_t statement_index,
+		bool store_value
+	) {
+		enum class call_type_t {
+			Direct,
+			Variable,
+			Complex
+		};
+		call_type_t call_type;
+		analysis::types::function_type func_type;
+		if (call.callee->kind == analysis::expressions::expression_node::kind_t::IDENTIFIER &&
+			!context.variable_storage->is_variable_declared(
+				std::get<analysis::expressions::identifier_expression>(call.callee->value).name)) {
+			// global function
+			call_type = call_type_t::Direct;
+			const auto& func_info =
+				context.global_context->function_storage->get_function(
+					std::get<analysis::expressions::identifier_expression>(call.callee->value).name
+				);
+			func_type.parameter_types.reserve(func_info.parameter_types.size());
+			for (const auto& param : func_info.parameter_types) {
+				func_type.parameter_types.emplace_back(std::make_shared<analysis::types::type_node>(param));
+			}
+			func_type.return_type = std::make_shared<analysis::types::type_node>(func_info.return_type);
+		}
+		else {
+			auto callee_type = call.callee->get_type(
+				*context.variable_storage,
+				*context.global_context->function_storage,
+				*context.global_context->type_system
+			);
+			auto resolved_callee_type = context.global_context->type_system->resolved_type(callee_type);
+			if (resolved_callee_type.kind != analysis::types::type_node::kind_t::FUNCTION) {
+				throw std::runtime_error("Callee expression does not evaluate to a function");
+			}
+			func_type = std::get<analysis::types::function_type>(resolved_callee_type.value);
+			if (call.callee->kind == analysis::expressions::expression_node::kind_t::IDENTIFIER) {
+				call_type = call_type_t::Variable;
+			}
+			else {
+				call_type = call_type_t::Complex;
+				// complex expression, need to evaluate to get address
+				used_regs.set(target_reg.id, false);
+				compile_primitive_expression(
+					*call.callee, context, program, current_scope,
+					target_reg, used_regs, modified_regs, statement_index
+				);
+				used_regs.set(target_reg.id, true);
+			}
+		}
+		uint32_t param_stack_size = 0;
+		for (const auto& param_type : func_type.parameter_types) {
+			param_stack_size += context.global_context->type_system->get_type_size(*param_type);
+		}
+		uint32_t ret_size = context.global_context->type_system->get_type_size(*func_type.return_type);
+		if (param_stack_size < ret_size) {
+			program.emplace_back(assembly::assembly_instruction(
+				machine::operation::SUB,
+				assembly::assembly_result({machine::register_id::esp, machine::register_access::dword}),
+				assembly::assembly_operand(ret_size - param_stack_size)
+			));
+		}
+		machine::register_id param_reg = find_free_register(
+			used_regs,
+			{machine::register_id::edx, machine::register_id::ebx, machine::register_id::ecx, machine::register_id::eax},
+			{target_reg.id}
+		);
+		modified_regs.set(param_reg, true);
+		const bool param_reg_used = used_regs.get(param_reg);
+		if (param_reg_used) {
+			// need to save param_reg
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::PUSH,
+				assembly::assembly_operand({param_reg, machine::register_access::dword})
+			));
+		}
+		used_regs.set(param_reg, false);
+		// push parameters in reverse order
+		compile_call_arguments(
+			call, func_type, context, program,
+			current_scope, used_regs, modified_regs, statement_index
+		);
+		// now call the function
+		if (call_type == call_type_t::Direct) {
+			const auto& function_label = generate_function_label(
+				std::get<analysis::expressions::identifier_expression>(call.callee->value).name
+			);
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::CALL,
+				assembly::assembly_operand(function_label)
+			));
+		}
+		else if (call_type == call_type_t::Variable) {
+			const auto& ident = std::get<analysis::expressions::identifier_expression>(call.callee->value);
+			if (!context.variable_storage->is_variable_declared(ident.name)) {
+				throw std::runtime_error("Variable not found: " + ident.name);
+			}
+			const auto declaring_scope = context.variable_storage->get_declaring_scope(ident.name);
+			const auto var_info = declaring_scope->get_variable(ident.name, false);
+			switch (declaring_scope->storage_type) {
+				case analysis::variables::storage::storage_type_t::Global:
+					throw std::runtime_error("Loading global variables is not supported yet");
+				case analysis::variables::storage::storage_type_t::Function: {
+					// Variable is a parameter passed to the function
+					auto func_sig = context.current_function_signature;
+					if (func_sig == nullptr) {
+						throw std::runtime_error("Current function signature is null");
+					}
+					// find the parameter index
+					uint32_t idx = func_sig->name_index_map.at(ident.name);
+					auto param = func_sig->parameters[idx];
+					uint32_t offset = param.offset;
+					// move the parameter to the target register
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::CALL,
+						assembly::assembly_operand({
+							machine::data_size_t::DWORD,
+							assembly::assembly_memory(
+								machine::register_t{machine::register_id::ebp},
+								static_cast<int32_t>(offset)
+							)
+						})
+					));
+					break;
+				}
+				case analysis::variables::storage::storage_type_t::Block: {
+					// Variable is a local variable
+					auto var = current_scope.get_variable(ident.name, true);
+					// offset is negative from ebp
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::CALL,
+						assembly::assembly_operand({
+							machine::data_size_t::DWORD,
+							assembly::assembly_memory(
+								machine::register_t{machine::register_id::ebp},
+								-static_cast<int32_t>(var.offset)
+							)
+						})
+					));
+					break;
+				}
+			}
+		}
+		else {
+			// complex expression, address is already in target_reg
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::CALL,
+				assembly::assembly_operand({target_reg.id, machine::register_access::dword})
+			));
+		}
+		// the return value is stored on the stack starting at the position of the first parameter (the one that was pushed last)
+		// that just means it's at [esp]
+		// move it to target_reg
+		// if the return size is 0 (void), do nothing
+		if (ret_size > 0 && store_value) {
+			machine::data_size_t ret_data_size =
+				ret_size == 1
+				? machine::data_size_t::BYTE
+				: ret_size == 2
+				? machine::data_size_t::WORD
+				: machine::data_size_t::DWORD;
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::MOV,
+				assembly::assembly_result(target_reg),
+				assembly::assembly_operand({
+					ret_data_size,
+					assembly::assembly_memory(
+						machine::register_id::esp
+					)
+				})
+			));
+		}
+		// clean up the stack
+		if (param_stack_size > 0 || ret_size > param_stack_size) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::ADD,
+				assembly::assembly_result({machine::register_id::esp, machine::register_access::dword}),
+				assembly::assembly_operand(std::max(param_stack_size, ret_size))
+			));
+		}
+		// restore param_reg if needed
+		if (param_reg_used) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::POP,
+				assembly::assembly_operand({param_reg, machine::register_access::dword})
+			));
+		}
+	}
+
 	void compile_primitive_expression(
 		const analysis::expressions::expression_node& expr,
 		const scoped_compilation_context& context,
@@ -2039,190 +2249,10 @@ namespace unqlang::compiler {
 		}
 		if (expr.kind == analysis::expressions::expression_node::kind_t::CALL) {
 			const auto& call = std::get<analysis::expressions::call_expression>(expr.value);
-			enum class call_type_t {
-				Direct,
-				Variable,
-				Complex
-			};
-			call_type_t call_type;
-			analysis::types::function_type func_type;
-			if (call.callee->kind == analysis::expressions::expression_node::kind_t::IDENTIFIER &&
-				!context.variable_storage->is_variable_declared(
-					std::get<analysis::expressions::identifier_expression>(call.callee->value).name)) {
-				// global function
-				call_type = call_type_t::Direct;
-				const auto& func_info =
-					context.global_context->function_storage->get_function(
-						std::get<analysis::expressions::identifier_expression>(call.callee->value).name
-					);
-				func_type.parameter_types.reserve(func_info.parameter_types.size());
-				for (const auto& param : func_info.parameter_types) {
-					func_type.parameter_types.emplace_back(std::make_shared<analysis::types::type_node>(param));
-				}
-				func_type.return_type = std::make_shared<analysis::types::type_node>(func_info.return_type);
-			}
-			else {
-				auto callee_type = call.callee->get_type(
-					*context.variable_storage,
-					*context.global_context->function_storage,
-					*context.global_context->type_system
-				);
-				auto resolved_callee_type = context.global_context->type_system->resolved_type(callee_type);
-				if (resolved_callee_type.kind != analysis::types::type_node::kind_t::FUNCTION) {
-					throw std::runtime_error("Callee expression does not evaluate to a function");
-				}
-				func_type = std::get<analysis::types::function_type>(resolved_callee_type.value);
-				if (call.callee->kind == analysis::expressions::expression_node::kind_t::IDENTIFIER) {
-					call_type = call_type_t::Variable;
-				}
-				else {
-					call_type = call_type_t::Complex;
-					// complex expression, need to evaluate to get address
-					used_regs.set(target_reg.id, false);
-					compile_primitive_expression(
-						*call.callee, context, program, current_scope,
-						target_reg, used_regs, modified_regs, statement_index
-					);
-					used_regs.set(target_reg.id, true);
-				}
-			}
-			uint32_t param_stack_size = 0;
-			for (const auto& param_type : func_type.parameter_types) {
-				param_stack_size += context.global_context->type_system->get_type_size(*param_type);
-			}
-			uint32_t ret_size = context.global_context->type_system->get_type_size(*func_type.return_type);
-			if (param_stack_size < ret_size) {
-				program.emplace_back(assembly::assembly_instruction(
-					machine::operation::SUB,
-					assembly::assembly_result({machine::register_id::esp, machine::register_access::dword}),
-					assembly::assembly_operand(ret_size - param_stack_size)
-				));
-			}
-			machine::register_id param_reg = find_free_register(
-				used_regs,
-				{machine::register_id::edx, machine::register_id::ebx, machine::register_id::ecx, machine::register_id::eax},
-				{target_reg.id}
+			compile_call_expression(
+				call, context, program, current_scope,
+				target_reg, used_regs, modified_regs, statement_index, store_value
 			);
-			modified_regs.set(param_reg, true);
-			const bool param_reg_used = used_regs.get(param_reg);
-			if (param_reg_used) {
-				// need to save param_reg
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::PUSH,
-					assembly::assembly_operand({param_reg, machine::register_access::dword})
-				));
-			}
-			used_regs.set(param_reg, false);
-			// push parameters in reverse order
-			compile_call_arguments(
-				call, func_type, context, program,
-				current_scope, used_regs, modified_regs, statement_index
-			);
-			// now call the function
-			if (call_type == call_type_t::Direct) {
-				const auto& function_label = generate_function_label(
-					std::get<analysis::expressions::identifier_expression>(call.callee->value).name
-				);
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::CALL,
-					assembly::assembly_operand(function_label)
-				));
-			}
-			else if (call_type == call_type_t::Variable) {
-				const auto& ident = std::get<analysis::expressions::identifier_expression>(call.callee->value);
-				if (!context.variable_storage->is_variable_declared(ident.name)) {
-					throw std::runtime_error("Variable not found: " + ident.name);
-				}
-				const auto declaring_scope = context.variable_storage->get_declaring_scope(ident.name);
-				const auto var_info = declaring_scope->get_variable(ident.name, false);
-				switch (declaring_scope->storage_type) {
-					case analysis::variables::storage::storage_type_t::Global:
-						throw std::runtime_error("Loading global variables is not supported yet");
-					case analysis::variables::storage::storage_type_t::Function: {
-						// Variable is a parameter passed to the function
-						auto func_sig = context.current_function_signature;
-						if (func_sig == nullptr) {
-							throw std::runtime_error("Current function signature is null");
-						}
-						// find the parameter index
-						uint32_t idx = func_sig->name_index_map.at(ident.name);
-						auto param = func_sig->parameters[idx];
-						uint32_t offset = param.offset;
-						// move the parameter to the target register
-						program.push_back(assembly::assembly_instruction(
-							machine::operation::CALL,
-							assembly::assembly_operand({
-								machine::data_size_t::DWORD,
-								assembly::assembly_memory(
-									machine::register_t{machine::register_id::ebp},
-									static_cast<int32_t>(offset)
-								)
-							})
-						));
-						break;
-					}
-					case analysis::variables::storage::storage_type_t::Block: {
-						// Variable is a local variable
-						auto var = current_scope.get_variable(ident.name, true);
-						// offset is negative from ebp
-						program.push_back(assembly::assembly_instruction(
-							machine::operation::CALL,
-							assembly::assembly_operand({
-								machine::data_size_t::DWORD,
-								assembly::assembly_memory(
-									machine::register_t{machine::register_id::ebp},
-									-static_cast<int32_t>(var.offset)
-								)
-							})
-						));
-						break;
-					}
-				}
-			}
-			else {
-				// complex expression, address is already in target_reg
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::CALL,
-					assembly::assembly_operand({target_reg.id, machine::register_access::dword})
-				));
-			}
-			// the return value is stored on the stack starting at the position of the first parameter (the one that was pushed last)
-			// that just means it's at [esp]
-			// move it to target_reg
-			// if the return size is 0 (void), do nothing
-			if (ret_size > 0 && store_value) {
-				machine::data_size_t ret_data_size =
-					ret_size == 1
-					? machine::data_size_t::BYTE
-					: ret_size == 2
-					? machine::data_size_t::WORD
-					: machine::data_size_t::DWORD;
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::MOV,
-					assembly::assembly_result(target_reg),
-					assembly::assembly_operand({
-						ret_data_size,
-						assembly::assembly_memory(
-							machine::register_id::esp
-						)
-					})
-				));
-			}
-			// clean up the stack
-			if (param_stack_size > 0 || ret_size > param_stack_size) {
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::ADD,
-					assembly::assembly_result({machine::register_id::esp, machine::register_access::dword}),
-					assembly::assembly_operand(std::max(param_stack_size, ret_size))
-				));
-			}
-			// restore param_reg if needed
-			if (param_reg_used) {
-				program.push_back(assembly::assembly_instruction(
-					machine::operation::POP,
-					assembly::assembly_operand({param_reg, machine::register_access::dword})
-				));
-			}
 			return;
 		}
 		if (dest_type.kind == analysis::types::type_node::kind_t::ARRAY) {
@@ -5228,6 +5258,7 @@ namespace unqlang::compiler {
 			std::make_shared<compilation_context>(
 				this->m_type_system,
 				this->m_function_storage,
+				this->m_inline_storage,
 				this->m_variable_storage,
 				this->m_complex_literal_storage
 			),
@@ -5348,10 +5379,8 @@ namespace unqlang::compiler {
 		m_built_in_functions.emplace(
 			func_info.name,
 			built_in_function{
-				built_in_function::assembly_built_in{
-					func_info,
-					std::move(func_program)
-				}
+				func_info,
+				std::move(func_program)
 			}
 		);
 		m_function_storage->declare_function(
@@ -5363,40 +5392,18 @@ namespace unqlang::compiler {
 	}
 	void Compiler::register_built_in_function(
 		const std::string& name,
-		const analysis::types::type_node& return_type,
-		const std::vector<analysis::types::type_node>& parameter_types,
-		const std::vector<machine::register_t>& parameter_registers,
-		const machine::register_t& return_register,
-		const assembly::assembly_program_t& program
+		const analysis::functions::inline_function& func
 	) {
-		if (parameter_types.size() != parameter_registers.size()) {
-			throw std::runtime_error("Parameter types and registers size mismatch");
+		if (m_inline_storage->is_function_defined(name)) {
+			throw std::runtime_error("Built-in function '" + name + "' is already defined");
 		}
-		std::vector<built_in_function::inline_assembly_built_in::parameter> params;
-		params.reserve(parameter_types.size());
-		for (size_t i = 0; i < parameter_types.size(); ++i) {
-			params.push_back({
-				parameter_types[i],
-				parameter_registers[i]
-			});
-		}
-		m_built_in_functions.emplace(
-			name,
-			built_in_function{
-				built_in_function::inline_assembly_built_in{
-					{
-						return_type,
-						return_register
-					},
-					std::move(params),
-					program
-				}
-			}
-		);
+		m_inline_storage->add_function(name, func);
 		m_function_storage->declare_function(
 			name,
-			return_type,
-			parameter_types,
+			func.return_value.type,
+			func.parameters | std::views::transform(
+				[](const auto& p) { return p.type; }
+			) | std::ranges::to<std::vector>(),
 			true
 		);
 	}
@@ -5464,13 +5471,11 @@ namespace unqlang::compiler {
 		this->compile_literals(program);
 		program.emplace_back(assembly::assembly_component::type::COMMENT, "--- Built-in Functions ---");
 		for (const auto& func : m_built_in_functions | std::views::values) {
-			if (func.type == built_in_function::type_t::Assembly) {
-				program.insert(
-					program.end(),
-					std::get<built_in_function::assembly_built_in>(func.data).implementation.begin(),
-					std::get<built_in_function::assembly_built_in>(func.data).implementation.end()
-				);
-			}
+			program.insert(
+				program.end(),
+				func.implementation.begin(),
+				func.implementation.end()
+			);
 		}
 		program.emplace_back(assembly::assembly_component::type::COMMENT, "--- User Functions ---");
 		for (const auto& func_program : m_compiled_functions | std::views::values) {

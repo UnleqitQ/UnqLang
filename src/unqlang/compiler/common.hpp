@@ -114,6 +114,9 @@ namespace unqlang::compiler {
 		// function storage (for global functions)
 		std::shared_ptr<analysis::functions::storage> function_storage;
 
+		// inline function storage (for global inline assembly functions)
+		std::shared_ptr<analysis::functions::inline_storage> inline_function_storage;
+
 		// variable storage (for global variables)
 		std::shared_ptr<analysis::variables::storage> variable_storage;
 
@@ -123,21 +126,26 @@ namespace unqlang::compiler {
 		compilation_context()
 			: type_system(std::make_shared<analysis::types::type_system>()),
 			  function_storage(std::make_shared<analysis::functions::storage>()),
+			  inline_function_storage(std::make_shared<analysis::functions::inline_storage>()),
 			  variable_storage(std::make_shared<analysis::variables::storage>()),
 			  complex_literal_storage(std::make_shared<analysis::complex_literals::storage>()) {
 		}
 
 		compilation_context(const std::shared_ptr<analysis::types::type_system>& ts,
 			const std::shared_ptr<analysis::functions::storage>& fs,
+			const std::shared_ptr<analysis::functions::inline_storage>& ifs,
 			const std::shared_ptr<analysis::variables::storage>& vs,
 			const std::shared_ptr<analysis::complex_literals::storage>& cls)
-			: type_system(ts), function_storage(fs), variable_storage(vs),
+			: type_system(ts), function_storage(fs), inline_function_storage(ifs), variable_storage(vs),
 			  complex_literal_storage(cls) {
 			if (!type_system) {
 				throw std::runtime_error("Type system cannot be null");
 			}
 			if (!function_storage) {
 				throw std::runtime_error("Function storage cannot be null");
+			}
+			if (!inline_function_storage) {
+				throw std::runtime_error("Inline function storage cannot be null");
 			}
 			if (!variable_storage) {
 				throw std::runtime_error("Variable storage cannot be null");
