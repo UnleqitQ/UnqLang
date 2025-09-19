@@ -1796,6 +1796,13 @@ namespace unqlang::compiler {
 			}
 			case analysis::expressions::expression_node::kind_t::BINARY: {
 			}
+			case analysis::expressions::expression_node::kind_t::CAST: {
+				const auto& cast = std::get<analysis::expressions::cast_expression>(expr.value);
+				compile_primitive_expression(
+					*cast.expression, context, program, current_scope,
+					target_reg, used_regs, modified_regs, statement_index
+				);
+			}
 		}
 	}
 
@@ -3241,6 +3248,16 @@ namespace unqlang::compiler {
 						assembly::assembly_result{right_reg_id}
 					));
 				}
+				return;
+			}
+			case analysis::expressions::expression_node::kind_t::CAST: {
+				const auto& cast = std::get<analysis::expressions::cast_expression>(expr.value);
+				// get the value into target_reg
+				compile_primitive_expression(
+					*cast.expression, context, program, current_scope,
+					target_reg, used_regs, modified_regs, statement_index,
+					store_value
+				);
 				return;
 			}
 			case analysis::expressions::expression_node::kind_t::TERNARY:
