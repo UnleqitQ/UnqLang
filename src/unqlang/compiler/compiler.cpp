@@ -851,10 +851,30 @@ namespace unqlang::compiler {
 						// store program in temporary program to not mess up the register usage
 						// (since we might need to save/restore registers below)
 						assembly::assembly_program_t temp_program;
-						auto val_mem = compile_reference(
-							*binary.left, context, temp_program,
-							current_scope, used_regs, modified_regs, statement_index
-						);
+						assembly::assembly_memory val_mem;
+						if (resolved_left_type.kind == analysis::types::type_node::kind_t::ARRAY) {
+							val_mem = compile_reference(
+								*binary.left, context, temp_program,
+								current_scope, used_regs, modified_regs, statement_index
+							);
+						}
+						else {
+							auto ptr_reg = find_free_register(
+								used_regs,
+								{
+									machine::register_id::eax, machine::register_id::ecx,
+									machine::register_id::edx, machine::register_id::ebx
+								},
+								{index_reg}
+							);
+							modified_regs.set(ptr_reg, true);
+							used_regs.set(ptr_reg, false);
+							compile_primitive_expression(
+								*binary.left, context, temp_program,
+								current_scope, ptr_reg, used_regs, modified_regs, statement_index
+							);
+							val_mem = assembly::assembly_memory(ptr_reg);
+						}
 						// if the value memory address contains the index register, we need to do some tricks
 						regmask val_mem_regs = get_containing_regs(val_mem);
 						// whether we need to save the address in a different register first
