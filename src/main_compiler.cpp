@@ -138,6 +138,7 @@ assembly::assembly_program_t parse_assembly(const std::string& source_code) {
 int main() {
 	cmrc::embedded_filesystem cmrc_fs = cmrc::builtin::get_filesystem();
 	std::string putc_asm;
+	std::string putc_inl_asm;
 	std::string puti_asm;
 	try {
 		auto file = cmrc_fs.open("builtin/putc.usm");
@@ -145,6 +146,14 @@ int main() {
 	}
 	catch (const std::exception& e) {
 		std::cerr << "Error loading putc.usm: " << e.what() << std::endl;
+		return 1;
+	}
+	try {
+		auto file = cmrc_fs.open("builtin/putc_inl.usm");
+		putc_inl_asm = std::string(file.begin(), file.end());
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error loading putc_inl.usm: " << e.what() << std::endl;
 		return 1;
 	}
 	try {
@@ -190,11 +199,27 @@ int main() {
 
 	unqlang::compiler::Compiler compilr;
 	compilr.analyze_program(program);
-	compilr.register_built_in_function(
+	/*compilr.register_built_in_function(
 		unqlang::analysis::functions::function_info("putc",
 			unqlang::analysis::types::primitive_type::VOID,
 			{unqlang::analysis::types::primitive_type::CHAR}
 		), parse_assembly(putc_asm)
+	);*/
+	compilr.register_built_in_function(
+		"putc",
+		unqlang::analysis::functions::inline_function(
+			unqlang::analysis::functions::inline_function::parameter_info(
+				unqlang::analysis::types::primitive_type::VOID,
+				{machine::register_id::eax, machine::register_access::low_byte}
+			),
+			{
+				unqlang::analysis::functions::inline_function::parameter_info(
+					unqlang::analysis::types::primitive_type::CHAR,
+					{machine::register_id::eax, machine::register_access::low_byte}
+				)
+			},
+			parse_assembly(putc_inl_asm)
+		)
 	);
 	compilr.register_built_in_function(
 		unqlang::analysis::functions::function_info("puti",

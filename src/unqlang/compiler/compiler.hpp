@@ -500,6 +500,7 @@ namespace unqlang::compiler {
 			  m_variable_storage(
 				  std::make_shared<analysis::variables::storage>(analysis::variables::storage::storage_type_t::Global)
 			  ),
+			  m_inline_storage(std::make_shared<analysis::functions::inline_storage>()),
 			  m_complex_literal_storage(std::make_shared<analysis::complex_literals::storage>()) {
 		}
 

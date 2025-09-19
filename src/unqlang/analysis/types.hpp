@@ -353,6 +353,10 @@ namespace unqlang::analysis::types {
 		bool operator!=(const type_node& other) const {
 			return !(*this == other);
 		}
+
+		bool is_void() const {
+			return kind == kind_t::PRIMITIVE && std::get<primitive_type>(value) == primitive_type::VOID;
+		}
 	};
 
 	class type_system {

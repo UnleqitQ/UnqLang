@@ -1817,6 +1817,7 @@ namespace unqlang::compiler {
 		if (func_info.parameters.size() != call.arguments.size()) {
 			throw std::runtime_error("Argument count does not match parameter count in inline function call");
 		}
+		bool has_return = !func_info.return_value.type.is_void();
 		if (store_value)
 			used_regs.set(target_reg.id, false);
 		regmask regs;
@@ -1824,8 +1825,10 @@ namespace unqlang::compiler {
 			regs.set(p.reg.id, true);
 			modified_regs.set(p.reg.id, true);
 		}
-		regs.set(func_info.return_value.reg.id, true);
-		modified_regs.set(func_info.return_value.reg.id, true);
+		if (has_return) {
+			regs.set(func_info.return_value.reg.id, true);
+			modified_regs.set(func_info.return_value.reg.id, true);
+		}
 		regmask overlap = regs & used_regs;
 		// save overlapping registers
 		std::vector<machine::register_t> saved_regs;
@@ -1853,6 +1856,9 @@ namespace unqlang::compiler {
 		program.insert(program.end(), func_info.implementation.begin(), func_info.implementation.end());
 		// move return value to target_reg if needed
 		if (store_value && func_info.return_value.reg.id != target_reg.id) {
+			if (!has_return) {
+				throw std::runtime_error("Function does not return a value");
+			}
 			program.push_back(assembly::assembly_instruction(
 				machine::operation::MOV,
 				assembly::assembly_result{target_reg},
