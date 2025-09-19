@@ -97,6 +97,11 @@ namespace unqlang::compiler {
 			raw &= other.raw;
 			return *this;
 		}
+		regmask operator~() const {
+			regmask result;
+			result.raw = ~raw;
+			return result;
+		}
 
 		static constexpr std::array<machine::register_id, 6> USABLE_REGISTERS = {
 			machine::register_id::eax,

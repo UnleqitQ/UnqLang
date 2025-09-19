@@ -1810,6 +1810,62 @@ namespace unqlang::compiler {
 		uint32_t statement_index,
 		bool store_value
 	) {
+		analysis::functions::inline_function func_info =
+			context.global_context->inline_function_storage->get_function(
+				std::get<analysis::expressions::identifier_expression>(call.callee->value).name
+			);
+		if (func_info.parameters.size() != call.arguments.size()) {
+			throw std::runtime_error("Argument count does not match parameter count in inline function call");
+		}
+		if (store_value)
+			used_regs.set(target_reg.id, false);
+		regmask regs;
+		for (const auto p : func_info.parameters) {
+			regs.set(p.reg.id, true);
+			modified_regs.set(p.reg.id, true);
+		}
+		regs.set(func_info.return_value.reg.id, true);
+		modified_regs.set(func_info.return_value.reg.id, true);
+		regmask overlap = regs & used_regs;
+		// save overlapping registers
+		std::vector<machine::register_t> saved_regs;
+		for (const auto r : regmask::USABLE_REGISTERS) {
+			if (overlap.get(r)) {
+				program.emplace_back(assembly::assembly_instruction(
+					machine::operation::PUSH,
+					assembly::assembly_operand{r}
+				));
+				saved_regs.emplace_back(r);
+			}
+		}
+		used_regs &= ~regs;
+		// compile arguments
+		for (size_t i = 0; i < call.arguments.size(); ++i) {
+			const auto& arg = call.arguments[i];
+			const auto& param = func_info.parameters[i];
+			compile_primitive_expression(
+				*arg, context, program, current_scope,
+				param.reg, used_regs, modified_regs, statement_index
+			);
+			used_regs.set(param.reg.id, true);
+		}
+		// inline the function body
+		program.insert(program.end(), func_info.implementation.begin(), func_info.implementation.end());
+		// move return value to target_reg if needed
+		if (store_value && func_info.return_value.reg.id != target_reg.id) {
+			program.push_back(assembly::assembly_instruction(
+				machine::operation::MOV,
+				assembly::assembly_result{target_reg},
+				assembly::assembly_operand{func_info.return_value.reg}
+			));
+		}
+		// now restore the saved registers
+		for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
+			program.emplace_back(assembly::assembly_instruction(
+				machine::operation::POP,
+				assembly::assembly_result{*it}
+			));
+		}
 	}
 
 	void compile_call_expression(
@@ -1833,6 +1889,16 @@ namespace unqlang::compiler {
 		if (call.callee->kind == analysis::expressions::expression_node::kind_t::IDENTIFIER &&
 			!context.variable_storage->is_variable_declared(
 				std::get<analysis::expressions::identifier_expression>(call.callee->value).name)) {
+			// check if it is inline
+			if (context.global_context->inline_function_storage->is_function_defined(
+				std::get<analysis::expressions::identifier_expression>(call.callee->value).name
+			)) {
+				compile_inline_call_expression(
+					call, context, program, current_scope,
+					target_reg, used_regs, modified_regs, statement_index, store_value
+				);
+				return;
+			}
 			// global function
 			call_type = call_type_t::Direct;
 			const auto& func_info =
