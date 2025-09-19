@@ -83,6 +83,15 @@ namespace unqlang {
 			std::string dec_str(digits.begin(), digits.end());
 			return std::stoi(dec_str);
 		}, "dec");
+	const Parser<char, int> integer_lexer = (hex_lexer || decimal_lexer)
+		.map<int>([](int value) {
+			return value;
+		}, "integer");
+	const Parser<char, unsigned int> unsigned_integer_lexer =
+		(integer_lexer + symbol('u'))
+		.map<unsigned int>([](const std::pair<int, char>& p) {
+			return static_cast<unsigned int>(p.first);
+		}, "unsigned-integer");
 	const Parser<char, int> char_lexer = (symbol('\'') >
 			(
 				(symbol('\\') + satisfy<char>([](char c) { return true; }, "any")).map<char>(
@@ -101,11 +110,17 @@ namespace unqlang {
 		.map<int>([](char c) {
 			return static_cast<int>(c);
 		}, "char");
-	const Parser<char, lexer_token> integer_lexer = (hex_lexer || decimal_lexer || char_lexer)
+	const Parser<char, lexer_token> integral_lexer = (
+		(integer_lexer || char_lexer)
 		.map<lexer_token>([](int value) {
 			return lexer_token{lexer_token::type_t::Integer, value};
-		}, "integer");
-	// float is skipped for now
+		}, "integral") ||
+		unsigned_integer_lexer
+		.map<lexer_token>([](unsigned int value) {
+			return lexer_token{lexer_token::type_t::UnsignedInteger, value};
+		}, "integral")
+	);
+
 	const Parser<char, lexer_token> identifier_lexer = ((symbol_range('a', 'z') | symbol_range('A', 'Z') | symbol('_')) +
 			*(symbol_range('a', 'z') | symbol_range('A', 'Z') | symbol_range('0', '9') | symbol('_')))
 		.map<lexer_token>([](const std::pair<char, std::vector<char>>& p) {
@@ -155,8 +170,10 @@ namespace unqlang {
 		"while",
 		"for",
 		"return",
+		"unsigned",
+		"signed",
 		"int",
-		// "float",
+		"short",
 		"char",
 		"bool",
 		"void",
@@ -186,7 +203,7 @@ namespace unqlang {
 		comment_lexer ||
 		keyword_lexer ||
 		identifier_lexer ||
-		integer_lexer ||
+		integral_lexer ||
 		string_lexer ||
 		operator_lexer ||
 		punctuation_lexer;
@@ -217,8 +234,8 @@ namespace unqlang {
 			case lexer_token::type_t::Integer:
 				os << "Integer, Value: " << std::get<int>(tok.value);
 				break;
-			case lexer_token::type_t::Float:
-				//os << "Float, Value: " << std::get<double>(tok.value);
+			case lexer_token::type_t::UnsignedInteger:
+				os << "Unsigned Integer, Value: " << std::get<unsigned int>(tok.value);
 				break;
 			case lexer_token::type_t::String:
 				os << "String, Value: \"" << std::get<std::string>(tok.value) << "\"";

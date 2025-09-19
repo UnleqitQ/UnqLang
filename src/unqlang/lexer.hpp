@@ -52,7 +52,7 @@ namespace unqlang {
 		enum class type_t {
 			Identifier,
 			Integer,
-			Float,
+			UnsignedInteger,
 			String,
 			Operator,
 			Punctuation,
@@ -63,7 +63,7 @@ namespace unqlang {
 		std::variant<
 			std::string, // For Identifier, String, Keyword (also for Unknown)
 			int, // For Integer
-			// double, // For Float
+			unsigned int, // For Unsigned Integer
 			punctuation_type_t, // For Punctuation
 			operator_type_t // For Operator
 		> value;

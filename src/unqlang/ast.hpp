@@ -37,8 +37,11 @@ namespace unqlang {
 		enum class type_t {
 			Void,
 			Int,
-			// Float,
+			UnsignedInt,
+			Short,
+			UnsignedShort,
 			Char,
+			SignedChar,
 			Bool,
 			Pointer,
 			Array,
@@ -48,7 +51,7 @@ namespace unqlang {
 			Custom // typedef or reference to named type
 		} type;
 		std::variant<
-			std::monostate, // Void, Int, Float, Char, Bool
+			std::monostate, // Void, Int, UnsignedInt, Short, UnsignedShort, Char, SignedChar, Bool
 			ast_type_pointer, // Pointer
 			ast_type_array, // Array
 			ast_type_function, // Function
@@ -101,6 +104,10 @@ namespace unqlang {
 			switch (type) {
 				case type_t::Void:
 				case type_t::Int:
+				case type_t::UnsignedInt:
+				case type_t::Short:
+				case type_t::UnsignedShort:
+				case type_t::SignedChar:
 				case type_t::Char:
 				case type_t::Bool:
 					return true; // No additional data to compare
