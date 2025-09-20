@@ -3,6 +3,9 @@
 #include "../parser.hpp"
 
 namespace unqlang {
+	bool is_nonidentifier_char(char c) {
+		return !(std::isalnum(static_cast<unsigned char>(c)) || c == '_');
+	}
 	operator_type_t lexer_parse_operator_type(const std::string& op_str) {
 		if (op_str == "+") return operator_type_t::Plus;
 		if (op_str == "-") return operator_type_t::Minus;
@@ -187,10 +190,17 @@ namespace unqlang {
 		"true",
 		"false"
 	};
-	const Parser<char, lexer_token> keyword_lexer = tokens(keyword_strings, "keywords", false, true)
-		.map<lexer_token>([](const std::vector<char>& kw) {
-			std::string kw_str(kw.begin(), kw.end());
-			return lexer_token{lexer_token::type_t::Keyword, kw_str};
+	const Parser<char, lexer_token> keyword_lexer = Parser<char, lexer_token>(
+		[](const std::vector<char>& input, std::vector<std::pair<lexer_token, size_t>>& output, ParserTable&) {
+			for (const auto& kw : keyword_strings) {
+				size_t kw_len = kw.size();
+				if (input.size() >= kw_len &&
+					std::equal(kw.begin(), kw.end(), input.begin()) &&
+					(input.size() == kw_len || is_nonidentifier_char(input[kw_len]))) {
+					output.emplace_back(lexer_token{lexer_token::type_t::Keyword, kw}, kw_len);
+					return; // Only match the first keyword
+				}
+			}
 		}, "keyword");
 	const Parser<char, std::monostate> whitespace_lexer = (*symbols(std::vector<char>{' ', '\t', '\n', '\r'},
 			"whitespace"))
