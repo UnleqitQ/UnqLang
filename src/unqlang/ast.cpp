@@ -196,10 +196,10 @@ namespace unqlang {
 			});
 			parser.add_rule({ast_type_symbol_t::Array, {ast_type_symbol_t::Type, ast_type_symbol_t::TmpArrayBrackets}});
 			parser.add_rule({ast_type_symbol_t::Pointer, {ast_type_symbol_t::Type, ast_type_symbol_t::InAsterisk}});
-			parser.add_rule({ast_type_symbol_t::Type, {ast_type_symbol_t::Builtin}});
 			// ex: unsigned (builtin -> type) + int (builtin) -> unsigned int (composite builtin)
 			// checks for validity in build_type_node
 			parser.add_rule({ast_type_symbol_t::CompositeBuiltin, {ast_type_symbol_t::Type, ast_type_symbol_t::Builtin}});
+			parser.add_rule({ast_type_symbol_t::Type, {ast_type_symbol_t::Builtin}});
 			parser.add_rule({ast_type_symbol_t::Type, {ast_type_symbol_t::CompositeBuiltin}});
 			parser.add_rule({ast_type_symbol_t::Type, {ast_type_symbol_t::Custom}});
 			parser.add_rule({
@@ -294,8 +294,15 @@ namespace unqlang {
 						keywords.push_back(std::get<std::string>(kw_tok.value));
 						current = children[0];
 					}
-					if (current.symbol == ast_type_symbol_t::Builtin) {
-						const lexer_token& kw_tok = std::get<lexer_token>(current.children);
+					if (current.symbol == ast_type_symbol_t::Type &&
+						std::get<std::vector<ShiftReduceParser<lexer_token, ast_type_symbol_t>::Reduced>>(
+							current.children).size() == 1 &&
+						std::get<std::vector<ShiftReduceParser<lexer_token, ast_type_symbol_t>::Reduced>>(
+							current.children)[0].symbol == ast_type_symbol_t::Builtin) {
+						// Final builtin
+						const lexer_token& kw_tok = std::get<lexer_token>(
+							std::get<std::vector<ShiftReduceParser<lexer_token, ast_type_symbol_t>::Reduced>>(
+								current.children)[0].children);
 						keywords.push_back(std::get<std::string>(kw_tok.value));
 					}
 					else {
@@ -1578,6 +1585,15 @@ namespace unqlang {
 			case type_t::Int:
 				std::cout << std::string(indent, ' ') << "[Type] int\n";
 				break;
+			case type_t::UnsignedInt:
+				std::cout << std::string(indent, ' ') << "[Type] unsigned int\n";
+				break;
+			case type_t::Short:
+				std::cout << std::string(indent, ' ') << "[Type] short\n";
+				break;
+			case type_t::UnsignedShort:
+				std::cout << std::string(indent, ' ') << "[Type] unsigned short\n";
+				break;
 			case type_t::Void:
 				std::cout << std::string(indent, ' ') << "[Type] void\n";
 				break;
@@ -1586,6 +1602,9 @@ namespace unqlang {
 				break;
 			case type_t::Char:
 				std::cout << std::string(indent, ' ') << "[Type] char\n";
+				break;
+			case type_t::SignedChar:
+				std::cout << std::string(indent, ' ') << "[Type] signed char\n";
 				break;
 			case type_t::Array:
 				std::get<ast_type_array>(value).print(indent);
@@ -1870,12 +1889,24 @@ namespace unqlang {
 		const std::string indent_str(indent, ' ');
 		std::cout << indent_str << "[Program] Elements:\n" << std::flush;
 		for (const auto& elem : body) {
-			std::visit([&indent]<typename T0>(const T0& node) {
+			std::visit([&indent, indent_str]<typename T0>(const T0& node) {
 				if constexpr (std::is_same_v<T0, ast_statement_function_declaration>) {
 					node.print(indent + 1);
 				}
 				else if constexpr (std::is_same_v<T0, ast_statement_struct_declaration>) {
 					node.print(indent + 1);
+				}
+				else if constexpr (std::is_same_v<T0, ast_statement_union_declaration>) {
+					node.print(indent + 1);
+				}
+				else if constexpr (std::is_same_v<T0, ast_statement_type_declaration>) {
+					node.print(indent + 1);
+				}
+				else if constexpr (std::is_same_v<T0, ast_statement_variable_declaration>) {
+					node.print(indent + 1);
+				}
+				else {
+					std::cout << indent_str << "  [Unknown Program Element]\n";
 				}
 			}, elem);
 		}
@@ -1885,6 +1916,15 @@ namespace unqlang {
 			case ast_type_node::type_t::Int:
 				stream << "int";
 				break;
+			case ast_type_node::type_t::UnsignedInt:
+				stream << "unsigned int";
+				break;
+			case ast_type_node::type_t::Short:
+				stream << "short";
+				break;
+			case ast_type_node::type_t::UnsignedShort:
+				stream << "unsigned short";
+				break;
 			case ast_type_node::type_t::Void:
 				stream << "void";
 				break;
@@ -1893,6 +1933,9 @@ namespace unqlang {
 				break;
 			case ast_type_node::type_t::Char:
 				stream << "char";
+				break;
+			case ast_type_node::type_t::SignedChar:
+				stream << "signed char";
 				break;
 			case ast_type_node::type_t::Array: {
 				const auto& arr = std::get<ast_type_array>(n.value);

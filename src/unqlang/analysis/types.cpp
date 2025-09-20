@@ -620,8 +620,16 @@ namespace unqlang::analysis::types {
 		switch (ast_type.type) {
 			case ast_type_node::type_t::Char:
 				return type_node(primitive_type::CHAR);
+			case ast_type_node::type_t::SignedChar:
+				return type_node(primitive_type::SIGNED_CHAR);
 			case ast_type_node::type_t::Int:
 				return type_node(primitive_type::INT);
+			case ast_type_node::type_t::UnsignedInt:
+				return type_node(primitive_type::UNSIGNED_INT);
+			case ast_type_node::type_t::Short:
+				return type_node(primitive_type::SHORT);
+			case ast_type_node::type_t::UnsignedShort:
+				return type_node(primitive_type::UNSIGNED_SHORT);
 			case ast_type_node::type_t::Bool:
 				return type_node(primitive_type::BOOL);
 			case ast_type_node::type_t::Void:
