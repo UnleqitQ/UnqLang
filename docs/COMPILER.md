@@ -7,8 +7,7 @@ This is mostly for my own reference. (As if anyone would read this..., that's no
 
 The language is in C-like syntax, but it is not C (because I'm not crazy enough to make a C compiler).\
 The compiler is written in C++ and uses a custom lexer and parser to generate an Abstract Syntax Tree (AST).\
-The AST is then transformed into an Intermediate Representation (IR) which is then optimized and finally translated into
-assembly code. (At least that's the plan)
+The AST is then compiled into assembly code. (At least that's the plan)
 
 So now on to the details of the language.
 
