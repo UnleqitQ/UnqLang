@@ -12,7 +12,7 @@ namespace unqlang {
 			switch (type) {
 				case lexer_token::type_t::Identifier: return "IDENTIFIER";
 				case lexer_token::type_t::Integer: return "INTEGER";
-				case lexer_token::type_t::Float: return "FLOAT";
+				case lexer_token::type_t::UnsignedInteger: return "UNSIGNED_INTEGER";
 				case lexer_token::type_t::String: return "STRING";
 				case lexer_token::type_t::Operator: return "OPERATOR";
 				case lexer_token::type_t::Punctuation: return "PUNCTUATION";
@@ -134,6 +134,7 @@ namespace unqlang {
 			Array,
 			Pointer,
 			Builtin,
+			CompositeBuiltin, // e.g. unsigned int
 			Custom,
 
 			Type,
@@ -173,7 +174,8 @@ namespace unqlang {
 						}
 						case lexer_token::type_t::Keyword: {
 							const auto kw = std::get<std::string>(tok.value);
-							if (kw == "int" || kw == "void" || kw == "bool" || kw == "char") {
+							if (kw == "void" || kw == "bool" || kw == "char" || kw == "int" || kw == "short" ||
+								kw == "unsigned" || kw == "signed") {
 								return (sym = ast_type_symbol_t::Builtin, true);
 							}
 							return false;
@@ -195,6 +197,10 @@ namespace unqlang {
 			parser.add_rule({ast_type_symbol_t::Array, {ast_type_symbol_t::Type, ast_type_symbol_t::TmpArrayBrackets}});
 			parser.add_rule({ast_type_symbol_t::Pointer, {ast_type_symbol_t::Type, ast_type_symbol_t::InAsterisk}});
 			parser.add_rule({ast_type_symbol_t::Type, {ast_type_symbol_t::Builtin}});
+			// ex: unsigned (builtin -> type) + int (builtin) -> unsigned int (composite builtin)
+			// checks for validity in build_type_node
+			parser.add_rule({ast_type_symbol_t::CompositeBuiltin, {ast_type_symbol_t::Type, ast_type_symbol_t::Builtin}});
+			parser.add_rule({ast_type_symbol_t::Type, {ast_type_symbol_t::CompositeBuiltin}});
 			parser.add_rule({ast_type_symbol_t::Type, {ast_type_symbol_t::Custom}});
 			parser.add_rule({
 				ast_type_symbol_t::Type,
@@ -213,14 +219,23 @@ namespace unqlang {
 					if (kw == "int") {
 						return ast_type_node(ast_type_node::type_t::Int, std::monostate{});
 					}
-					else if (kw == "void") {
+					if (kw == "void") {
 						return ast_type_node(ast_type_node::type_t::Void, std::monostate{});
 					}
-					else if (kw == "bool") {
+					if (kw == "bool") {
 						return ast_type_node(ast_type_node::type_t::Bool, std::monostate{});
 					}
-					else if (kw == "char") {
+					if (kw == "char") {
 						return ast_type_node(ast_type_node::type_t::Char, std::monostate{});
+					}
+					if (kw == "short") {
+						return ast_type_node(ast_type_node::type_t::Short, std::monostate{});
+					}
+					if (kw == "unsigned") {
+						return ast_type_node(ast_type_node::type_t::UnsignedInt, std::monostate{});
+					}
+					if (kw == "signed") {
+						return ast_type_node(ast_type_node::type_t::Int, std::monostate{});
 					}
 					throw std::runtime_error("Unknown builtin type keyword: " + kw);
 				}
@@ -261,6 +276,67 @@ namespace unqlang {
 					ast_type_pointer ptr;
 					ptr.base = std::make_shared<ast_type_node>(base_type);
 					return ast_type_node(ast_type_node::type_t::Pointer, ptr);
+				}
+				case ast_type_symbol_t::CompositeBuiltin: {
+					std::vector<std::string> keywords;
+					ShiftReduceParser<lexer_token, ast_type_symbol_t>::Reduced current = reduced;
+					while (current.symbol == ast_type_symbol_t::CompositeBuiltin) {
+						const auto& children = std::get<std::vector<ShiftReduceParser<lexer_token, ast_type_symbol_t>::Reduced>>(
+							current.children);
+						if (children.size() != 2) {
+							throw std::runtime_error("Invalid composite builtin parse");
+						}
+						if (children[0].symbol != ast_type_symbol_t::Type ||
+							children[1].symbol != ast_type_symbol_t::Builtin) {
+							throw std::runtime_error("Invalid composite builtin parse");
+						}
+						const lexer_token& kw_tok = std::get<lexer_token>(children[1].children);
+						keywords.push_back(std::get<std::string>(kw_tok.value));
+						current = children[0];
+					}
+					if (current.symbol == ast_type_symbol_t::Builtin) {
+						const lexer_token& kw_tok = std::get<lexer_token>(current.children);
+						keywords.push_back(std::get<std::string>(kw_tok.value));
+					}
+					else {
+						throw std::runtime_error("Invalid composite builtin parse");
+					}
+					// Now interpret keywords
+					if (keywords.size() == 2) {
+						if (keywords[1] == "unsigned" || keywords[1] == "signed") {
+							if (keywords[0] == "int") {
+								return ast_type_node(keywords[1] == "unsigned"
+									? ast_type_node::type_t::UnsignedInt
+									: ast_type_node::type_t::Int, std::monostate{});
+							}
+							if (keywords[0] == "short") {
+								return ast_type_node(keywords[1] == "unsigned"
+									? ast_type_node::type_t::UnsignedShort
+									: ast_type_node::type_t::Short, std::monostate{});
+							}
+							if (keywords[0] == "char") {
+								return ast_type_node(keywords[1] == "unsigned"
+									? ast_type_node::type_t::Char
+									: ast_type_node::type_t::SignedChar, std::monostate{});
+							}
+						}
+						else if (keywords[1] == "short" && keywords[0] == "int") {
+							return ast_type_node(ast_type_node::type_t::Short, std::monostate{});
+						}
+					}
+					else if (keywords.size() == 3) {
+						if ((keywords[2] == "unsigned" || keywords[2] == "signed") &&
+							keywords[0] == "int") {
+							if (keywords[1] == "short") {
+								return ast_type_node(keywords[2] == "unsigned"
+									? ast_type_node::type_t::UnsignedShort
+									: ast_type_node::type_t::Short, std::monostate{});
+							}
+						}
+					}
+					throw std::runtime_error("Unknown composite builtin type keywords: " +
+						std::accumulate(std::next(keywords.begin()), keywords.end(), keywords[0],
+							[](const std::string& a, const std::string& b) { return a + " " + b; }));
 				}
 				case ast_type_symbol_t::Type: {
 					if (reduced.children.index() == 0) {
@@ -688,8 +764,8 @@ namespace unqlang {
 		).rename("SizeOfExpression");
 		const ast_expression_parser_t ast_l2_cast_parser =
 		((util::punctuation('(') >
-			type_parser::ref_ast_type_parser <
-			util::punctuation(')')) +
+				type_parser::ref_ast_type_parser <
+				util::punctuation(')')) +
 			ref_ast_l1_expression_parser
 		).map<std::shared_ptr<ast_expression_node>>(
 			[](const auto& p) {
