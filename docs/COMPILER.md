@@ -17,13 +17,14 @@ So now on to the details of the language.
 The language will for now be called "UnqLang" (file extension: .unq).
 The language will have the following features (at least in the beginning):
 
-- Basic data types: int, float, char, bool
-- Variables and constants
-- Arithmetic and logical operations
-- Control flow: if, else, while, for
-- Functions
-- Pointers (including arrays)
-- Structs
-- Basic I/O operations (print, read (not implemented in machine yet))
-- Comments (// for single line, /* */ for multi line)
-
+- typedefs
+- structs
+- unions
+- pointers
+- arrays
+- basic types (int, char, bool, short + signed/unsigned variants)
+- functions
+- control flow (if-else, while, (for maybe later))
+- expressions (arithmetic, logical, bitwise)
+- comments (// and /* */)
+- basic I/O (currently only putc and puti)
