@@ -49,6 +49,8 @@ cmrc_add_resource_library(
 	res/builtin/putc.usm
 	res/builtin/dev_in.usm
 	res/builtin/dev_out.usm
+	res/builtin/rd.usm
+	res/builtin/dbg.usm
 )
 
 target_link_libraries(MiscMachine MiscMachineLib UnqLangCompilerLib UnqLangLib BuiltinResources)

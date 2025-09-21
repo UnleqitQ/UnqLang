@@ -1,0 +1,4 @@
+; UnqLang assembly for inline built-in function: dbg
+; parameters: (unsigned int val: eax/4 bytes)
+; returns: (void)
+out eax, 0xFFFF ; IO port 0xFFFF for debugger

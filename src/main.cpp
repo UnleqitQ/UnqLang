@@ -235,10 +235,56 @@ void register_built_in_functions(unqlang::compiler::Compiler& compilr) {
 		std::cerr << "Error loading dev_out.usm: " << e.what() << std::endl;
 		throw;
 	}
+
+	// rd
+	try {
+		auto file = cmrc_fs.open("builtin/rd.usm");
+		std::string rd_asm(file.begin(), file.end());
+		compilr.register_built_in_function(
+			"rd",
+			unqlang::analysis::functions::inline_function(
+				unqlang::analysis::functions::inline_function::parameter_info(
+					unqlang::analysis::types::primitive_type::UINT,
+					{machine::register_id::eax, machine::register_access::dword}
+				),
+				{},
+				parse_assembly(rd_asm)
+			)
+		);
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error loading rd.usm: " << e.what() << std::endl;
+		throw;
+	}
+
+	// dbg
+	try {
+		auto file = cmrc_fs.open("builtin/dbg.usm");
+		std::string dbg_asm(file.begin(), file.end());
+		compilr.register_built_in_function(
+			"dbg",
+			unqlang::analysis::functions::inline_function(
+				unqlang::analysis::functions::inline_function::parameter_info(
+					unqlang::analysis::types::primitive_type::VOID,
+					{machine::register_id::eax, machine::register_access::dword}
+				),
+				{
+					unqlang::analysis::functions::inline_function::parameter_info(
+						unqlang::analysis::types::primitive_type::UINT,
+						{machine::register_id::eax, machine::register_access::dword}
+					)
+				},
+				parse_assembly(dbg_asm)
+			)
+		);
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error loading dbg.usm: " << e.what() << std::endl;
+		throw;
+	}
 }
 
 int main() {
-
 	std::filesystem::path source_path = "../programs/quicksort.unq";
 	std::string source_code;
 	try {
