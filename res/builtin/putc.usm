@@ -1,5 +1,4 @@
-; UnqLang assembly for built-in function: putc
-; parameters: (char: stack 0/1 byte)
+; UnqLang assembly for inline built-in function: putc
+; parameters: (char c: al/1 byte)
 ; returns: (void)
-out byte ptr [esp + 0x4], 0x01 ; IO port 1 for stdout
-ret
+out al, 0x01 ; IO port 1 for stdout

@@ -1,0 +1,4 @@
+; UnqLang assembly for built-in function: dev_out
+; parameters: (unsigned short port: dx/2 bytes, unsigned int value: eax/4 bytes)
+; returns: (void)
+out eax, dx ; write value in eax to port in dx

@@ -1,4 +1,0 @@
-; UnqLang assembly for inline built-in function: putc
-; parameters: (char: al/1 byte)
-; returns: (void)
-out al, 0x01 ; IO port 1 for stdout

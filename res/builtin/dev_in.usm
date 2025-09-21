@@ -1,0 +1,4 @@
+; UnqLang assembly for built-in function: dev_in
+; parameters: (unsigned short port: dx/2 bytes)
+; returns: (unsigned int: eax/4 bytes)
+in eax, dx ; read from port in dx into eax
