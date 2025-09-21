@@ -284,6 +284,75 @@ void register_built_in_functions(unqlang::compiler::Compiler& compilr) {
 	}
 }
 
+void register_peripherals(machine::computer& computr) {
+	machine::peripheral stdio_peripheral(
+		0x0001,
+		[]() {
+			char input_char;
+			std::cin.get(input_char);
+			return static_cast<uint32_t>(input_char);
+		},
+		[](uint32_t value) {
+			std::cout << static_cast<char>(value & 0xFF);
+		}
+	);
+	computr.register_peripheral(stdio_peripheral);
+
+	machine::peripheral time_peripheral(
+		0x0002,
+		[] {
+			auto now = std::chrono::high_resolution_clock::now();
+			auto now_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now);
+			auto epoch = now_ms.time_since_epoch();
+			return static_cast<uint32_t>(epoch.count() & 0xFFFFFFFF);
+		},
+		[](uint32_t value) {
+			// No-op for write
+		}
+	);
+	computr.register_peripheral(time_peripheral);
+
+	machine::peripheral rand_peripheral(
+		0x0003,
+		[] {
+			return std::random_device{}() & 0xFFFFFFFF;
+		},
+		[](uint32_t value) {
+			// No-op for write
+		}
+	);
+	computr.register_peripheral(rand_peripheral);
+
+	machine::peripheral keyboard_peripheral(
+		0x0004,
+		[] {
+			if (std::cin.rdbuf()->in_avail() > 0) {
+				char input_char;
+				std::cin.get(input_char);
+				return static_cast<uint32_t>(input_char);
+			}
+			else {
+				return static_cast<uint32_t>(0);
+			}
+		},
+		[](uint32_t value) {
+			// No-op for write
+		}
+	);
+	computr.register_peripheral(keyboard_peripheral);
+
+	machine::peripheral debug_peripheral(
+		0xFFFF,
+		[] {
+			return 0;
+		},
+		[](uint32_t value) {
+			std::cout << std::format("[DEBUG] Peripheral write: {:#010x}\n", value);
+		}
+	);
+	computr.register_peripheral(debug_peripheral);
+}
+
 int main() {
 	std::filesystem::path source_path = "../programs/quicksort.unq";
 	std::string source_code;
@@ -366,74 +435,7 @@ int main() {
 		return 1;
 	}
 
-	machine::peripheral stdio_peripheral(
-		0x0001,
-		[]() {
-			char input_char;
-			std::cin.get(input_char);
-			return static_cast<uint32_t>(input_char);
-		},
-		[](uint32_t value) {
-			std::cout << static_cast<char>(value & 0xFF);
-		}
-	);
-	computr.register_peripheral(stdio_peripheral);
-
-	machine::peripheral time_peripheral(
-		0x0002,
-		[] {
-			auto now = std::chrono::high_resolution_clock::now();
-			auto now_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now);
-			auto epoch = now_ms.time_since_epoch();
-			return static_cast<uint32_t>(epoch.count() & 0xFFFFFFFF);
-		},
-		[](uint32_t value) {
-			// No-op for write
-		}
-	);
-	computr.register_peripheral(time_peripheral);
-
-	std::mt19937 mt(std::random_device{}());
-	machine::peripheral rand_peripheral(
-		0x0003,
-		[&mt] {
-			std::uniform_int_distribution<uint32_t> dist(0, 0xFFFFFFFF);
-			return dist(mt);
-		},
-		[](uint32_t value) {
-			// No-op for write
-		}
-	);
-	computr.register_peripheral(rand_peripheral);
-
-	machine::peripheral keyboard_peripheral(
-		0x0004,
-		[] {
-			if (std::cin.rdbuf()->in_avail() > 0) {
-				char input_char;
-				std::cin.get(input_char);
-				return static_cast<uint32_t>(input_char);
-			}
-			else {
-				return static_cast<uint32_t>(0);
-			}
-		},
-		[](uint32_t value) {
-			// No-op for write
-		}
-	);
-	computr.register_peripheral(keyboard_peripheral);
-
-	machine::peripheral debug_peripheral(
-		0xFFFF,
-		[] {
-			return 0;
-		},
-		[](uint32_t value) {
-			std::cout << std::format("[DEBUG] Peripheral write: {:#010x}\n", value);
-		}
-	);
-	computr.register_peripheral(debug_peripheral);
+	register_peripherals(computr);
 
 	computr.set_verbose(false);
 	try {
