@@ -3015,10 +3015,6 @@ namespace unqlang::compiler {
 				auto right_prim_type = std::get<analysis::types::primitive_type>(right_type.value);
 				machine::register_t target = {target_reg.id, analysis::types::to_data_size(prim_type)};
 				used_regs.set(target_reg.id, false);
-				compile_primitive_expression(
-					left, context, program, current_scope,
-					target, used_regs, modified_regs, statement_index
-				);
 				// get the value of the right side into a different register
 				// find a free register or use ebx (order to check: ebx, ecx, eax, edx)
 				machine::register_id right_reg_id = find_free_register(
@@ -3028,6 +3024,63 @@ namespace unqlang::compiler {
 						machine::register_id::edx
 					},
 					{target_reg.id}
+				);
+				if (binary.op == analysis::expressions::binary_expression::operator_t::ASSIGN) {
+					used_regs.set(target_reg.id, false);
+					assembly::assembly_program_t temp_program;
+					auto ref = compile_reference(
+						left, context, temp_program, current_scope,
+						used_regs, modified_regs, statement_index
+					);
+					regmask ref_regs = get_containing_regs(ref);
+					regmask overlap = ref_regs & used_regs;
+					std::vector<machine::register_t> saved_regs;
+					// save overlapping registers
+					for (const auto r : regmask::USABLE_REGISTERS) {
+						if (overlap.get(r) && r != target_reg.id && r != right_reg_id) {
+							program.emplace_back(assembly::assembly_instruction(
+								machine::operation::PUSH,
+								assembly::assembly_operand{r}
+							));
+							saved_regs.emplace_back(r);
+						}
+					}
+					// insert the temp program now
+					program.insert(program.end(), temp_program.begin(), temp_program.end());
+					// insert the assignment
+					compile_assignment(
+						ref,
+						left_type,
+						right,
+						context,
+						program,
+						current_scope,
+						used_regs,
+						modified_regs,
+						statement_index
+					);
+					// load the assigned value into target_reg
+					if (store_value)
+						program.push_back(assembly::assembly_instruction(
+							machine::operation::MOV,
+							assembly::assembly_result(target),
+							assembly::assembly_operand({
+								analysis::types::to_data_size(prim_type),
+								ref
+							})
+						));
+					// restore saved registers
+					for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
+						program.emplace_back(assembly::assembly_instruction(
+							machine::operation::POP,
+							assembly::assembly_result{*it}
+						));
+					}
+					return;
+				}
+				compile_primitive_expression(
+					left, context, program, current_scope,
+					target, used_regs, modified_regs, statement_index
 				);
 				modified_regs.set(right_reg_id, true);
 				used_regs.set(target_reg.id, true);
@@ -3187,59 +3240,6 @@ namespace unqlang::compiler {
 					case analysis::expressions::binary_expression::operator_t::LAND:
 					case analysis::expressions::binary_expression::operator_t::LOR:
 						throw std::runtime_error("Internal error: Comparison operators should be handled earlier");
-					case analysis::expressions::binary_expression::operator_t::ASSIGN: {
-						used_regs.set(target_reg.id, false);
-						assembly::assembly_program_t temp_program;
-						auto ref = compile_reference(
-							left, context, temp_program, current_scope,
-							used_regs, modified_regs, statement_index
-						);
-						regmask ref_regs = get_containing_regs(ref);
-						regmask overlap = ref_regs & used_regs;
-						std::vector<machine::register_t> saved_regs;
-						// save overlapping registers
-						for (const auto r : regmask::USABLE_REGISTERS) {
-							if (overlap.get(r) && r != target_reg.id && r != right_reg_id) {
-								program.emplace_back(assembly::assembly_instruction(
-									machine::operation::PUSH,
-									assembly::assembly_operand{r}
-								));
-								saved_regs.emplace_back(r);
-							}
-						}
-						// insert the temp program now
-						program.insert(program.end(), temp_program.begin(), temp_program.end());
-						// insert the assignment
-						compile_assignment(
-							ref,
-							left_type,
-							right,
-							context,
-							program,
-							current_scope,
-							used_regs,
-							modified_regs,
-							statement_index
-						);
-						// load the assigned value into target_reg
-						if (store_value)
-							program.push_back(assembly::assembly_instruction(
-								machine::operation::MOV,
-								assembly::assembly_result(target),
-								assembly::assembly_operand({
-									analysis::types::to_data_size(prim_type),
-									ref
-								})
-							));
-						// restore saved registers
-						for (auto it = saved_regs.rbegin(); it != saved_regs.rend(); ++it) {
-							program.emplace_back(assembly::assembly_instruction(
-								machine::operation::POP,
-								assembly::assembly_result{*it}
-							));
-						}
-						break;
-					}
 				}
 				// restore right_reg if needed
 				if (right_is_used) {
