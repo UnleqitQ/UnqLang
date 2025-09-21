@@ -39,14 +39,6 @@ add_executable(MiscMachine
 
 	src/main.cpp
 )
-add_executable(MiscMachine_compiler
-
-	src/main_compiler.cpp
-)
-add_executable(MiscMachine_assembler
-
-	src/main_assembler.cpp
-)
 
 cmrc_add_resource_library(
 	BuiltinResources
@@ -59,7 +51,5 @@ cmrc_add_resource_library(
 	res/builtin/dev_out.usm
 )
 
-target_link_libraries(MiscMachine MiscMachineLib UnqLangCompilerLib UnqLangLib)
-target_link_libraries(MiscMachine_compiler MiscMachineLib UnqLangCompilerLib UnqLangLib BuiltinResources)
-target_link_libraries(MiscMachine_assembler MiscMachineLib)
+target_link_libraries(MiscMachine MiscMachineLib UnqLangCompilerLib UnqLangLib BuiltinResources)
 
