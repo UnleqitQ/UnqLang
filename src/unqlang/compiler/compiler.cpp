@@ -599,7 +599,47 @@ namespace unqlang::compiler {
 			}
 			return;
 		}
-		throw std::runtime_error("Assignment for these types not implemented yet");
+		if (context.global_context->type_system->is_equivalent(resolved_dest_type, resolved_src_type)) {
+			uint32_t size = context.global_context->type_system->get_type_size(src_type);
+			assembly::assembly_program_t temp_program;
+			auto src_mem = compile_reference(
+				src, context, temp_program, current_scope,
+				used_regs | dest_regs, modified_regs, statement_index
+			);
+			regmask src_regs = get_containing_regs(src_mem);
+			regmask overlap = (src_regs & dest_regs) | (used_regs & src_regs);
+			if (overlap.raw == 0) {
+				// no overlap, we can just append the temp program
+				program.insert(program.end(), temp_program.begin(), temp_program.end());
+				// and move the memory
+				compile_move_memory(dest, src_mem, size, program);
+				return;
+			}
+			// overlap, need to save/restore the overlapping registers
+			std::vector<machine::register_id> to_save;
+			for (const auto r : regmask::USABLE_REGISTERS) {
+				if (overlap.get(r)) {
+					program.push_back(assembly::assembly_instruction(
+						machine::operation::PUSH,
+						assembly::assembly_operand({r, machine::register_access::dword})
+					));
+					to_save.push_back(r);
+				}
+			}
+			// append the temp program
+			program.insert(program.end(), temp_program.begin(), temp_program.end());
+			// move the memory
+			compile_move_memory(dest, src_mem, size, program);
+			// restore the saved registers in reverse order
+			for (auto it = to_save.rbegin(); it != to_save.rend(); ++it) {
+				program.push_back(assembly::assembly_instruction(
+					machine::operation::POP,
+					assembly::assembly_operand({*it, machine::register_access::dword})
+				));
+			}
+			return;
+		}
+		throw std::runtime_error("Type assignment is invalid or not implemented yet");
 	}
 
 	assembly::assembly_memory compile_reference(
