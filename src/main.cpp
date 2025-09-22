@@ -188,13 +188,13 @@ void register_built_in_functions(unqlang::compiler::Compiler& compilr) {
 			"dev_in",
 			unqlang::analysis::functions::inline_function(
 				unqlang::analysis::functions::inline_function::parameter_info(
-					unqlang::analysis::types::primitive_type::USHORT,
-					{machine::register_id::edx, machine::register_access::word}
+					unqlang::analysis::types::primitive_type::UINT,
+					{machine::register_id::eax, machine::register_access::dword}
 				),
 				{
 					unqlang::analysis::functions::inline_function::parameter_info(
-						unqlang::analysis::types::primitive_type::UINT,
-						{machine::register_id::eax, machine::register_access::dword}
+						unqlang::analysis::types::primitive_type::USHORT,
+						{machine::register_id::edx, machine::register_access::word}
 					)
 				},
 				parse_assembly(dev_in_asm)
