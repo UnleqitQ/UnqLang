@@ -16,6 +16,9 @@ add_library(UnqLangLib
 	src/unqlang/ast.cpp
 	src/unqlang/lexer.cpp
 )
+if (MSVC)
+	target_compile_options(UnqLangLib PRIVATE /bigobj)
+endif()
 
 add_library(UnqLangCompilerLib
 	src/unqlang/compiler/compiler.cpp
