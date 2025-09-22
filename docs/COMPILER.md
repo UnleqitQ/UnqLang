@@ -1,7 +1,7 @@
 # Compiler
 
 So this will be a doc or more like a dump of how the compiler works and what it does.
-This is mostly for my own reference. (As if anyone would read this..., that's not going publicly)
+This is mostly for my own reference. (As if anyone would read this...)
 
 ## Overview
 
