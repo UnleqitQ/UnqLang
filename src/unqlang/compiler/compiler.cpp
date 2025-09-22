@@ -5538,7 +5538,8 @@ namespace unqlang::compiler {
 						machine::data_size_t::DWORD,
 						assembly::assembly_memory(machine::register_id::esp)
 					}
-				}
+				},
+				assembly::assembly_operand{0x0}
 			));
 			out_program.push_back(assembly::assembly_instruction(
 				machine::operation::ADD,
