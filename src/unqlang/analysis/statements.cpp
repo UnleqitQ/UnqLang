@@ -112,8 +112,10 @@ namespace unqlang::analysis::statements {
 		for (const auto& branch : multi_if.branches) {
 			result.clauses.emplace_back(
 				block_statement::from_ast(branch.block),
-				branch.condition ? std::optional<expressions::expression_node>(
-					expressions::expression_node::from_ast(*branch.condition)) : std::nullopt
+				branch.condition
+				? std::optional<expressions::expression_node>(
+					expressions::expression_node::from_ast(*branch.condition))
+				: std::nullopt
 			);
 		}
 		return result;
@@ -157,6 +159,39 @@ namespace unqlang::analysis::statements {
 			case ast_statement_node::type_t::WhileStatement: {
 				const auto& while_stmt = std::get<ast_statement_while>(ast_stmt.value);
 				return statement_node(while_statement::from_ast(while_stmt));
+			}
+			case ast_statement_node::type_t::ForStatement: {
+				// for statements are treated as syntactic sugar for while statements
+				const auto& for_stmt = std::get<ast_statement_for>(ast_stmt.value);
+				if (for_stmt.body->type != ast_statement_node::type_t::BlockStatement) {
+					throw std::runtime_error("For statement body must be a block");
+				}
+				expressions::expression_node condition;
+				if (for_stmt.condition) {
+					condition = expressions::expression_node::from_ast(*for_stmt.condition);
+				}
+				else {
+					// no condition means 'true'
+					condition = expressions::expression_node(
+						expressions::expression_node::kind_t::LITERAL,
+						expressions::literal_expression(expressions::literal_expression::kind_t::BOOL, true)
+					);
+				}
+				block_statement body = block_statement::from_ast(std::get<ast_statement_block>(for_stmt.body->value));
+				if (for_stmt.update) {
+					// add update expression as last statement in body
+					body.statements.push_back(std::make_shared<statement_node>(
+						statement_node(expressions::expression_node::from_ast(*for_stmt.update))));
+				}
+				while_statement while_stmt(condition, body, false);
+				// add surrounding block and initializer if present
+				block_statement full_block;
+				if (for_stmt.initializer) {
+					full_block.statements.push_back(std::make_shared<statement_node>(
+						statement_node::from_ast(*for_stmt.initializer)));
+				}
+				full_block.statements.push_back(std::make_shared<statement_node>(statement_node(while_stmt)));
+				return statement_node(full_block);
 			}
 			case ast_statement_node::type_t::ReturnStatement: {
 				const auto& return_stmt = std::get<ast_statement_return>(ast_stmt.value);

@@ -204,6 +204,49 @@ namespace unqlang::compiler {
 					statement_index++;
 					break;
 				}
+				case ast_statement_node::type_t::ForStatement: {
+					const auto& for_stmt = std::get<ast_statement_for>(stmt->value);
+					const auto& body_node = for_stmt.body;
+					if (body_node->type != ast_statement_node::type_t::BlockStatement) {
+						throw std::runtime_error("For statement body is not a block");
+					}
+					std::shared_ptr<scope> for_scope = std::make_shared<scope>();
+					for_scope->parent = out_scope;
+					// handle initializer if present
+					bool has_initializer = for_stmt.initializer != nullptr;
+					if (has_initializer) {
+						const auto& init_node = *for_stmt.initializer;
+						if (init_node.type == ast_statement_node::type_t::VariableDeclaration) {
+							const auto& var_decl = std::get<ast_statement_variable_declaration>(init_node.value);
+							if (for_scope->symbol_table.contains(var_decl.name)) {
+								throw std::runtime_error("Variable '" + var_decl.name + "' already declared in this scope");
+							}
+							const auto& name = var_decl.name;
+							const auto& type = var_decl.var_type;
+							variable_info var_info(name, analysis::types::type_system::from_ast(*type));
+							for_scope->symbol_table.emplace(name, scope::variable_scope_info(var_info, 0));
+							for_scope->symbols_by_statement[0].push_back(name);
+						}
+						else if (init_node.type == ast_statement_node::type_t::ExpressionStatement) {
+							// just an expression, nothing to do
+						}
+						else {
+							throw std::runtime_error(
+								"For loop initializer must be a variable declaration or expression statement");
+						}
+					}
+					// build body scope
+					const auto& body_block = std::get<ast_statement_block>(body_node->value);
+					std::shared_ptr<scope> body_scope;
+					(void) build_scope(body_block, body_scope, for_scope);
+					// add body scope as child of for scope
+					for_scope->children[has_initializer ? 1 : 0] = {scope::child_scope_info(body_scope, child_scope_key(has_initializer ? 1 : 0, 0))};
+					// add child scope
+					child_scope_key key(statement_index, 0);
+					out_scope->children[statement_index] = {scope::child_scope_info(for_scope, key)};
+					statement_index++;
+					break;
+				}
 				case ast_statement_node::type_t::VariableDeclaration: {
 					const auto& var_decl = std::get<ast_statement_variable_declaration>(stmt->value);
 					if (out_scope->symbol_table.contains(var_decl.name)) {
