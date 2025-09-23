@@ -15,28 +15,18 @@ void print(char* s) {
 }
 
 void count_neighbors(gol* g, neighbors* n) {
-  int i = 0;
-  int j;
   // Initialize counts to zero
-  while (i < 10) {
-    j = 0;
-    while (j < 10) {
+  for (int i = 0; i < 10; ++i) {
+    for (int j = 0; j < 10; ++j) {
       n->count[i][j] = 0;
-      ++j;
     }
-    ++i;
   }
-  i = 0;
   // Count neighbors for each cell
-  while (i < 10) {
-    j = 0;
-    while (j < 10) {
+  for (int i = 0; i < 10; ++i) {
+    for (int j = 0; j < 10; ++j) {
       if (g->board[i][j]) {
-        int di = -1;
-        int dj;
-        while (di <= 1) {
-          dj = -1;
-          while (dj <= 1) {
+        for (int di = -1; di <= 1; ++di) {
+          for (int dj = -1; dj <= 1; ++dj) {
             if (di == 0 && dj == 0) {
               // Skip the cell itself
             }
@@ -47,23 +37,16 @@ void count_neighbors(gol* g, neighbors* n) {
                 ++(n->count[ni][nj]);
               }
             }
-            ++dj;
           }
-          ++di;
         }
       }
-      ++j;
     }
-    ++i;
   }
 }
 
 void update_board(gol* g, neighbors* n) {
-  int i = 0;
-  int j = 0;
-  while (i < 10) {
-    j = 0;
-    while (j < 10) {
+  for (int i = 0; i < 10; ++i) {
+    for (int j = 0; j < 10; ++j) {
       if (g->board[i][j]) {
         if (n->count[i][j] < 2 || n->count[i][j] > 3) {
           g->board[i][j] = false;
@@ -74,9 +57,7 @@ void update_board(gol* g, neighbors* n) {
           g->board[i][j] = true;
         }
       }
-      ++j;
     }
-    ++i;
   }
 }
 
@@ -86,34 +67,24 @@ void print_board(gol* g) {
     print("Null board pointer!\n");
     return;
   }
-  int i = 0;
-  int j = 0;
-  while (i < 10) {
-    j = 0;
-    while (j < 10) {
+  for (int i = 0; i < 10; ++i) {
+    for (int j = 0; j < 10; ++j) {
       if (g->board[i][j]) {
         putc('#');
       } else {
         putc('.');
       }
-      ++j;
     }
     putc('\n');
-    ++i;
   }
 }
 void print_neighbors(neighbors* n) {
   print("Neighbor counts:\n");
-  int i = 0;
-  int j = 0;
-  while (i < 10) {
-    j = 0;
-    while (j < 10) {
+  for (int i = 0; i < 10; ++i) {
+    for (int j = 0; j < 10; ++j) {
       putc('0' + n->count[i][j]);
-      ++j;
     }
     putc('\n');
-    ++i;
   }
 }
 
@@ -133,12 +104,10 @@ void main() {
   g.board[3][2] = true;
   g.board[3][3] = true;
 
-  int generation = 0;
-  while (generation < 20) {
+  for (int generation = 0; generation < 10; ++generation) {
     print_board(&g);
     putc('\n');
     step(&g);
-    ++generation;
   }
 }
 

@@ -6,11 +6,9 @@ int part(data_t data, int start, int end) {
   int l = start;
   int r = end - 1;
   while (l < r) {
-    while (l < r && data[l] < pivot) {
-      ++l;
+    for (;l < r && data[l] < pivot;++l) {
     }
-    while (r > l && data[r] > pivot) {
-      --r;
+    for (;r > l && data[r] > pivot;--r) {
     }
 
     if (data[l] > data[r]) {
@@ -54,14 +52,12 @@ void main() {
   data_t d = &data[0];
 
   quicksort(d, 0, 9);
-  int i = 0;
-  while (i < 10) {
+  for (int i = 0; i < 10; ++i) {
     puti(i);
     putc(':');
     putc(' ');
     puti(data[i]);
     putc('\n');
-    ++i;
   }
   return;
 }
