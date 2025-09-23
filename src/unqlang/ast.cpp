@@ -1269,10 +1269,63 @@ namespace unqlang {
 				"TypedefDeclaration"
 			).rename("TypedefDeclaration");
 
+		const Parser<lexer_token, std::shared_ptr<ast_statement_node>> ast_for_initializer_parser =
+			(ast_variable_declaration_parser || ast_expression_statement_parser ||
+				util::punctuation(';').map<std::shared_ptr<ast_statement_node>>(
+					[](const auto&) {
+						return nullptr;
+					},
+					"ForLoopEmptyInitializer"
+				))
+			.rename("ForLoopInitializer");
+		const Parser<lexer_token, std::shared_ptr<ast_expression_node>> ast_for_condition_parser =
+			(~expression_parser::ref_ast_expression_parser < util::punctuation(';'))
+			.map<std::shared_ptr<ast_expression_node>>(
+				[](const auto& expr_opt) {
+					if (expr_opt.has_value()) {
+						return expr_opt.value();
+					}
+					else {
+						return std::shared_ptr<ast_expression_node>(nullptr);
+					}
+				},
+				"ForLoopCondition"
+			).rename("ForLoopCondition");
+		const Parser<lexer_token, std::shared_ptr<ast_expression_node>> ast_for_update_parser =
+			(~expression_parser::ref_ast_expression_parser)
+			.map<std::shared_ptr<ast_expression_node>>(
+				[](const auto& expr_opt) {
+					if (expr_opt.has_value()) {
+						return expr_opt.value();
+					}
+					else {
+						return std::shared_ptr<ast_expression_node>(nullptr);
+					}
+				},
+				"ForLoopUpdate"
+			).rename("ForLoopUpdate");
+		const ast_statement_parser_t ast_for_statement_parser =
+			((util::keyword("for") >
+				(util::punctuation('(') > ast_for_initializer_parser +
+					ast_for_condition_parser) + ast_for_update_parser
+				< util::punctuation(')')) + ref_ast_block_parser)
+			.map<std::shared_ptr<ast_statement_node>>(
+				[](const auto& p) {
+					ast_statement_for for_stmt;
+					for_stmt.initializer = p.first.first.first;
+					for_stmt.condition = p.first.first.second;
+					for_stmt.update = p.first.second;
+					for_stmt.body = p.second;
+					return util::make_ast_statement_node(ast_statement_node::type_t::ForStatement, for_stmt);
+				},
+				"ForStatement"
+			).rename("ForStatement");
+
 		const ast_statement_parser_t ast_statement_parser = (
 			ast_variable_declaration_parser ||
 			ast_if_statement_parser ||
 			ast_while_statement_parser ||
+			ast_for_statement_parser ||
 			ast_return_statement_parser ||
 			ast_expression_statement_parser ||
 			ref_ast_block_parser
@@ -1680,6 +1733,24 @@ namespace unqlang {
 		std::cout << indent_str << "Body:\n";
 		body->print(indent + 1);
 	}
+	void ast_statement_for::print(int indent) const {
+		const std::string indent_str(indent, ' ');
+		std::cout << indent_str << "[ForStatement]\n";
+		if (initializer) {
+			std::cout << indent_str << "Initializer:\n";
+			initializer->print(indent + 1);
+		}
+		if (condition) {
+			std::cout << indent_str << "Condition:\n";
+			condition->print(indent + 1);
+		}
+		if (update) {
+			std::cout << indent_str << "Update:\n";
+			update->print(indent + 1);
+		}
+		std::cout << indent_str << "Body:\n";
+		body->print(indent + 1);
+	}
 	void ast_statement_return::print(int indent) const {
 		const std::string indent_str(indent, ' ');
 		std::cout << indent_str << "[ReturnStatement]";
@@ -1725,6 +1796,9 @@ namespace unqlang {
 				break;
 			case type_t::WhileStatement:
 				std::get<ast_statement_while>(value).print(indent);
+				break;
+			case type_t::ForStatement:
+				std::get<ast_statement_for>(value).print(indent);
 				break;
 			case type_t::ReturnStatement:
 				std::get<ast_statement_return>(value).print(indent);

@@ -417,6 +417,13 @@ namespace unqlang {
 		std::shared_ptr<ast_statement_node> body;
 		void print(int indent = 0) const;
 	};
+	struct ast_statement_for {
+		std::shared_ptr<ast_statement_node> initializer; // Can be null
+		std::shared_ptr<ast_expression_node> condition; // Can be null
+		std::shared_ptr<ast_expression_node> update; // Can be null
+		std::shared_ptr<ast_statement_node> body;
+		void print(int indent = 0) const;
+	};
 	struct ast_statement_return {
 		std::shared_ptr<ast_expression_node> value; // Can be null
 		void print(int indent = 0) const;
@@ -467,6 +474,7 @@ namespace unqlang {
 			TypeDeclaration, // typedef
 			IfStatement,
 			WhileStatement,
+			ForStatement,
 			ReturnStatement,
 			ExpressionStatement,
 			BlockStatement,
@@ -476,6 +484,7 @@ namespace unqlang {
 		std::variant<
 			ast_statement_if, // IfStatement
 			ast_statement_while, // WhileStatement
+			ast_statement_for, // ForStatement
 			ast_statement_return, // ReturnStatement
 			ast_statement_expression, // ExpressionStatement
 			ast_statement_block, // BlockStatement
